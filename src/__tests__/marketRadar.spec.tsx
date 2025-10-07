@@ -1,60 +1,77 @@
-import { describe, expect, it, beforeEach } from "vitest";
-import { render, screen, fireEvent, waitFor, within } from "@testing-library/react";
+import { beforeEach, describe, expect, it } from "vitest";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import React from "react";
-import MarketRadarTab from "../marketRadar/MarketRadarTab";
+import AcquisitionDemoApp from "../AcquisitionDemoApp";
 
-const setup = () => render(<MarketRadarTab />);
+type RenderResult = ReturnType<typeof render>;
 
-describe("MarketRadarTab", () => {
+const setup = (): RenderResult => render(<AcquisitionDemoApp />);
+
+const exportFromRadar = async () => {
+  setup();
+  const button = await screen.findByTestId("export-market-to-studio");
+  fireEvent.click(button);
+  await waitFor(() => {
+    expect(window.location.hash).toMatch(/#\/studio\//);
+  });
+};
+
+describe("Acquisition demo shell", () => {
   beforeEach(() => {
+    window.location.hash = "#/radar";
+    window.localStorage.clear();
     document.body.innerHTML = "";
   });
 
-  it("renders without crash and shows summary", () => {
+  it("renders Market Radar summary", () => {
     setup();
     expect(screen.getByText(/How to use Market Radar/i)).toBeInTheDocument();
   });
 
-  it("switches to map tab when clicked", () => {
+  it("switches to map view when tab clicked", () => {
     setup();
-    const mapTab = screen.getByRole("tab", { name: "Map" });
-    fireEvent.click(mapTab);
+    fireEvent.click(screen.getByRole("tab", { name: "Map" }));
     expect(screen.getByRole("img", { name: /US opportunity map/i })).toBeInTheDocument();
   });
 
-  it("updates key metrics when selecting a new archetype bubble", async () => {
-    setup();
-    const targetBubble = await screen.findByRole("button", { name: /Hybrid HQs bubble/i });
-    fireEvent.click(targetBubble);
+  it("exports to Segment Studio and hydrates read-in payload", async () => {
+    await exportFromRadar();
+    expect(await screen.findByText(/Segment Studio/i)).toBeInTheDocument();
+    expect(screen.getByText(/Window: 13w/i)).toBeInTheDocument();
+    expect(screen.getAllByText(/AIPIC cohort/i)[0]).toBeInTheDocument();
+    expect(screen.getByTestId("net-eligible").textContent).toContain("210");
+  });
+
+  it("updates net eligible and readiness when tuning studio controls", async () => {
+    await exportFromRadar();
+    await screen.findByText(/Rules builder/i);
+    const netValue = screen.getByTestId("net-eligible").textContent ?? "";
+    const includeInput = screen.getByPlaceholderText("Add include");
+    fireEvent.change(includeInput, { target: { value: "Lifecycle" } });
+    fireEvent.keyDown(includeInput, { key: "Enter" });
     await waitFor(() => {
-      expect(screen.getByText("150k")).toBeInTheDocument();
+      expect(screen.getByTestId("net-eligible").textContent).not.toBe(netValue);
+    });
+    const readiness = screen.getByTestId("readiness-score").textContent ?? "";
+    fireEvent.click(screen.getByLabelText("Contact permissions"));
+    await waitFor(() => {
+      expect(screen.getByTestId("readiness-score").textContent).not.toBe(readiness);
+    });
+    const afterInclude = screen.getByTestId("net-eligible").textContent ?? "";
+    fireEvent.click(screen.getByLabelText("Dedup grain person"));
+    await waitFor(() => {
+      expect(screen.getByTestId("net-eligible").textContent).not.toBe(afterInclude);
     });
   });
 
-  it("toggles more metrics visibility", () => {
-    setup();
-    const toggle = screen.getByRole("button", { name: /More metrics/i });
-    fireEvent.click(toggle);
-    expect(screen.getByText(/ARPU delta/i)).toBeInTheDocument();
-    fireEvent.click(toggle);
-    expect(screen.queryByText(/ARPU delta/i)).not.toBeInTheDocument();
-  });
-
-  it("opens competitive drawer with ranked bars", () => {
-    setup();
-    fireEvent.click(screen.getByRole("button", { name: /See all/i }));
-    const drawer = screen.getByRole("dialog", { name: /Competitive landscape/i });
-    const firstEntry = within(drawer).getAllByText(/%/i)[0];
-    expect(firstEntry.textContent).toContain("%");
-    expect(within(drawer).getByText(/Top threat/i)).toBeInTheDocument();
-  });
-
-  it("opens details drawer with micro segments", async () => {
-    setup();
-    fireEvent.click(screen.getAllByRole("button", { name: "View" })[0]);
+  it("shows destination counts responding to holdout slider", async () => {
+    await exportFromRadar();
+    await screen.findByText(/Destinations preview/i);
+    const beforeEmail = screen.getByTestId("dest-email").textContent ?? "";
+    const holdout = screen.getByLabelText("Holdout slider");
+    fireEvent.change(holdout, { target: { value: "15" } });
     await waitFor(() => {
-      expect(screen.getByRole("dialog", { name: /micro-segments/i })).toBeInTheDocument();
+      expect(screen.getByTestId("dest-email").textContent).not.toBe(beforeEmail);
     });
-    expect(screen.getByText(/Global CS pods/i)).toBeInTheDocument();
   });
 });

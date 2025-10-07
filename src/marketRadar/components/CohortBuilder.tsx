@@ -4,7 +4,7 @@
 import React, { useMemo, useState } from "react";
 import { Badge, SectionTitle } from "./atoms";
 
-const filterGroups: { title: string; options: string[] }[] = [
+export const filterGroups: { title: string; options: string[] }[] = [
   { title: "Stage", options: ["Seed", "Series A", "Series B", "Scaleup", "Enterprise"] },
   { title: "Motion", options: ["Product-led", "Sales-led", "Hybrid", "Channel", "Self-serve"] },
   { title: "Team", options: ["Remote", "Hybrid", "Field", "Retail", "Agency"] },
@@ -13,38 +13,45 @@ const filterGroups: { title: string; options: string[] }[] = [
   { title: "Signals", options: ["Hiring", "Funding", "Expansion", "Downsizing", "Tool churn"] }
 ];
 
-const CohortBuilder: React.FC = () => {
+type CohortBuilderProps = {
+  selected: Record<string, string[]>;
+  onSelectedChange: (value: Record<string, string[]>) => void;
+};
+
+const ensureGroup = (value: Record<string, string[]>) => {
+  const next: Record<string, string[]> = { ...value };
+  filterGroups.forEach((group) => {
+    if (!next[group.title]) {
+      next[group.title] = [];
+    }
+  });
+  return next;
+};
+
+const CohortBuilder: React.FC<CohortBuilderProps> = ({ selected, onSelectedChange }) => {
   const [ask, setAsk] = useState("");
   const [submitted, setSubmitted] = useState<string | null>(null);
-  const [selected, setSelected] = useState<Record<string, Set<string>>>(() => {
-    const initial: Record<string, Set<string>> = {};
-    filterGroups.forEach((group) => {
-      initial[group.title] = new Set();
-    });
-    return initial;
-  });
+  const hydrated = useMemo(() => ensureGroup(selected), [selected]);
 
   const toggleOption = (group: string, option: string) => {
-    setSelected((prev) => {
-      const groupSet = new Set(prev[group]);
-      if (groupSet.has(option)) {
-        groupSet.delete(option);
-      } else {
-        groupSet.add(option);
-      }
-      return { ...prev, [group]: groupSet };
-    });
+    const groupValues = new Set(hydrated[group]);
+    if (groupValues.has(option)) {
+      groupValues.delete(option);
+    } else {
+      groupValues.add(option);
+    }
+    onSelectedChange({ ...hydrated, [group]: Array.from(groupValues) });
   };
 
   const summary = useMemo(() => {
     const parts: string[] = [];
-    Object.entries(selected).forEach(([group, values]) => {
-      if (values.size > 0) {
-        parts.push(`${group}: ${Array.from(values).join(", ")}`);
+    Object.entries(hydrated).forEach(([group, values]) => {
+      if (values.length > 0) {
+        parts.push(`${group}: ${values.join(", ")}`);
       }
     });
     return parts.join(" • ");
-  }, [selected]);
+  }, [hydrated]);
 
   return (
     <aside className="card sticky top-4 flex flex-col gap-6 border border-slate-800 p-6" aria-label="Cohort Builder">
@@ -90,15 +97,15 @@ const CohortBuilder: React.FC = () => {
           <section key={group.title} className="space-y-3">
             <header className="flex items-center justify-between">
               <h3 className="text-sm font-semibold text-slate-200">{group.title}</h3>
-              {selected[group.title].size > 0 && (
+              {hydrated[group.title].length > 0 && (
                 <span className="text-xs text-emerald-300">
-                  {selected[group.title].size} selected
+                  {hydrated[group.title].length} selected
                 </span>
               )}
             </header>
             <div className="flex flex-wrap gap-2">
               {group.options.map((option) => {
-                const isActive = selected[group.title].has(option);
+                const isActive = hydrated[group.title].includes(option);
                 return (
                   <button
                     type="button"

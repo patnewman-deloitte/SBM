@@ -1,10 +1,10 @@
 import React from "react";
 import ReactDOM from "react-dom/client";
 import "./index.css";
-import MarketRadarTab from "./marketRadar/MarketRadarTab";
+import AcquisitionDemoApp from "./AcquisitionDemoApp";
 
 ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
   <React.StrictMode>
-    <MarketRadarTab />
+    <AcquisitionDemoApp />
   </React.StrictMode>
 );
