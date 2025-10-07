@@ -1,4 +1,5 @@
 import React from 'react';
+import InfoPopover from './InfoPopover';
 
 export type SelectionTrayProps = {
   title: string;
@@ -44,9 +45,19 @@ const SelectionTray: React.FC<SelectionTrayProps> = ({ title, items, metrics, ct
           </button>
         </div>
       </div>
-      <p className="mt-2 text-[11px] uppercase tracking-wide text-emerald-400">
-        Primary data source (est.): Synth Cohort Econ / Planner Workspace
-      </p>
+      {metrics.length ? (
+        <div className="mt-3 flex flex-wrap gap-4 text-xs text-slate-400">
+          {metrics.map((metric) => (
+            <div key={`info-${metric.label}`} className="flex items-center gap-2">
+              <InfoPopover
+                title={metric.label}
+                description={`This metric summarizes ${metric.label.toLowerCase()} across the current selection.`}
+              />
+              <span>Use to communicate progress for {metric.label.toLowerCase()}.</span>
+            </div>
+          ))}
+        </div>
+      ) : null}
     </div>
   );
 };

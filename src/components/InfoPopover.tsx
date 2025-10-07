@@ -4,7 +4,7 @@ import { Info } from 'lucide-react';
 export type InfoProps = {
   title: string;
   description: string;
-  primarySource: string;
+  primarySource?: string;
   placement?: 'top' | 'bottom' | 'left' | 'right';
 };
 
@@ -53,9 +53,11 @@ const InfoPopover: React.FC<InfoProps> = ({ title, description, primarySource, p
         >
           <p className="text-sm font-semibold text-emerald-300">{title}</p>
           <p className="mt-2 leading-relaxed text-slate-200">{description}</p>
-          <p className="mt-2 text-[11px] uppercase tracking-wide text-emerald-400">
-            Primary data source (est.): {primarySource}
-          </p>
+          {primarySource ? (
+            <p className="mt-2 text-[11px] uppercase tracking-wide text-emerald-400">
+              Primary data source (est.): {primarySource}
+            </p>
+          ) : null}
         </div>
       )}
     </div>

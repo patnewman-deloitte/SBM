@@ -1,4 +1,4 @@
-import { CheckCircle2, Pin, Send, ShoppingCart } from 'lucide-react';
+import { CheckCircle2, Pin, Send } from 'lucide-react';
 import InfoPopover from './InfoPopover';
 
 export type SegmentTileProps = {
@@ -31,9 +31,15 @@ const SegmentTile = ({
   return (
     <article className={`card flex flex-col gap-4 border border-slate-800 p-5 transition hover:border-emerald-500/40`}>
       <header className="flex items-start justify-between gap-3">
-        <div>
-          <h3 className="text-lg font-semibold text-white">{name}</h3>
-          <p className="text-xs text-slate-400">{size.toLocaleString()} households</p>
+        <div className="space-y-1">
+          <div className="flex items-center gap-2">
+            <h3 className="text-lg font-semibold text-white">{name}</h3>
+            <InfoPopover title="Cohort tile" description="Review the cohort summary, shortlist it, or send it forward." />
+          </div>
+          <div className="flex items-center gap-2 text-xs text-slate-400">
+            <span>{size.toLocaleString()} households</span>
+            <InfoPopover title="Cohort size" description="Shows the estimated audience count for this cohort." />
+          </div>
         </div>
         <div className="flex items-center gap-2 text-xs">
           <button
@@ -61,7 +67,6 @@ const SegmentTile = ({
             <InfoPopover
               title="CAC Payback (months)"
               description="Months until fully-loaded CAC is covered by cumulative contribution."
-              primarySource="Synth Cohort Econ"
             />
           </div>
           <p className="mt-1 text-xl font-semibold text-white">{typeof payback === 'number' ? `${payback}` : payback}</p>
@@ -72,32 +77,35 @@ const SegmentTile = ({
             <InfoPopover
               title="12-Month Incremental Gross Margin"
               description="Gross margin over first 12 months after servicing costs and device amortization."
-              primarySource="Synth Cohort Econ"
             />
           </div>
           <p className="mt-1 text-xl font-semibold text-white">${gm12.toLocaleString()}</p>
         </div>
       </div>
-      <div className="flex flex-wrap gap-2">
+      <div className="flex flex-wrap items-center gap-2">
         {traits.slice(0, 4).map((trait) => (
           <span key={trait} className="info-chip">
             {trait}
           </span>
         ))}
+        <InfoPopover title="Trait chips" description="Quick cues that explain why this cohort behaves the way it does." />
       </div>
-      <p className="text-sm text-slate-300">{rationale}</p>
-      <footer className="flex flex-wrap items-center gap-2 text-sm">
+      <p className="flex items-start gap-2 text-sm text-slate-300">
+        <InfoPopover title="Why it matters" description="One-line rationale to help you remember the opportunity." />
+        <span>{rationale}</span>
+      </p>
+      <footer className="flex flex-wrap items-center gap-3 text-sm">
         <button
           onClick={onAddToCart}
-          className="inline-flex items-center gap-2 rounded-full bg-emerald-500 px-3 py-1 font-semibold text-slate-950 shadow-lg shadow-emerald-500/30 transition hover:bg-emerald-600"
+          className="inline-flex items-center gap-2 rounded-full bg-emerald-500 px-4 py-1.5 font-semibold text-slate-950 shadow-lg shadow-emerald-500/30 transition hover:bg-emerald-600"
         >
-          <ShoppingCart className="h-4 w-4" /> Add to Cart
+          Shortlist cohort
         </button>
         <button
           onClick={onSendToStudio}
-          className="inline-flex items-center gap-2 rounded-full border border-emerald-500/40 bg-slate-900 px-3 py-1 text-emerald-200 transition hover:bg-emerald-500/10"
+          className="inline-flex items-center gap-2 rounded-full border border-emerald-500/40 bg-slate-900 px-4 py-1.5 text-emerald-200 transition hover:bg-emerald-500/10"
         >
-          <Send className="h-4 w-4" /> Send to Studio
+          <Send className="h-4 w-4" /> Advance now
         </button>
         {selected ? (
           <span className="ml-auto inline-flex items-center gap-2 text-emerald-300">

@@ -101,14 +101,14 @@ type FilterField = {
   type: 'select' | 'range' | 'text';
   options?: string[];
   placeholder?: string;
-  info: { title: string; description: string; primarySource: string };
+  info: { title: string; description: string; primarySource?: string };
 };
 
 type FilterGroup = {
   id: string;
   label: string;
   fields: FilterField[];
-  source: string;
+  source?: string;
 };
 
 const filterGroups: FilterGroup[] = [
@@ -371,6 +371,10 @@ const MarketRadar: React.FC = () => {
       {
         id: 'quant',
         title: 'Quant snapshot',
+        info: {
+          title: 'Quant snapshot',
+          description: 'Key metrics to size and score the selected cohort.'
+        },
         body: (
           <ul className="space-y-1">
             <li>Size: {segment.size.toLocaleString()} households</li>
@@ -383,6 +387,10 @@ const MarketRadar: React.FC = () => {
       {
         id: 'qual',
         title: 'Qual insights',
+        info: {
+          title: 'Qual insights',
+          description: 'Plain-language cues to explain the opportunity drivers.'
+        },
         body: (
           <ul className="list-disc space-y-1 pl-4">
             <li>Why it works: {segment.notes}</li>
@@ -394,6 +402,10 @@ const MarketRadar: React.FC = () => {
       {
         id: 'competitive',
         title: 'Competitive context',
+        info: {
+          title: 'Competitive context',
+          description: 'Understand who else is active and how we can win.'
+        },
         body: (
           <ul className="space-y-1">
             <li>Primary rival: Coverage gaps exploited by BetaTel</li>
@@ -405,6 +417,10 @@ const MarketRadar: React.FC = () => {
       {
         id: 'behaviors',
         title: 'Behavioral signals',
+        info: {
+          title: 'Behavioral signals',
+          description: 'Signals that describe how the cohort shows up in market.'
+        },
         body: (
           <ul className="space-y-1">
             {segment.traits.map((trait) => (
@@ -417,222 +433,263 @@ const MarketRadar: React.FC = () => {
   }, [activeSegment]);
 
   return (
-    <div className="grid grid-cols-[280px_1fr_320px] gap-6">
-      <aside className="flex flex-col gap-4">
-        <div className="card border border-slate-800 p-4">
-          <p className="text-xs uppercase tracking-wide text-emerald-400">How to use</p>
-          <p className="mt-2 text-sm text-slate-300">
-            Filter the population or type a natural-language query. See recommended cohorts, inspect the visualization, and add promising cohorts to your cart.
-          </p>
-        </div>
-        <div className="card border border-slate-800 p-4">
-          <label className="text-xs uppercase tracking-wide text-slate-400">Command bar</label>
-          <div className="mt-2 flex items-center gap-2">
-            <input
-              value={command}
-              onChange={(event) => setCommand(event.target.value)}
-              placeholder="ex: urban cohorts over 200k size"
-              className="flex-1 rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-white focus:border-emerald-500 focus:outline-none"
-            />
-            <button
-              onClick={handleCommand}
-              className="rounded-lg bg-emerald-500 px-3 py-2 text-sm font-semibold text-slate-950 hover:bg-emerald-600"
-            >
-              Apply
-            </button>
-          </div>
-          {intentSummary ? (
-            <span className="mt-3 inline-flex items-center gap-2 rounded-full bg-emerald-500/10 px-3 py-1 text-xs text-emerald-200">
-              What changed: {intentSummary}
-            </span>
-          ) : null}
-        </div>
-        {filterGroups.map((group) => (
-          <div key={group.id} className="card border border-slate-800 p-4">
-            <div className="flex items-center justify-between">
-              <h3 className="text-sm font-semibold text-white">{group.label}</h3>
-              <InfoPopover
-                title={group.label}
-                description={`Filters linked to the ${group.label} framework.`}
-                primarySource={group.source}
-              />
-            </div>
-            <div className="mt-3 space-y-3">
-              {group.fields.map((field) => {
-                const value = activeFilters[field.id] ?? (field.type === 'select' ? field.options?.[0]?.toLowerCase() ?? '' : '');
-                return (
-                  <div key={field.id} className="space-y-1">
-                    <label className="flex items-center justify-between text-xs uppercase tracking-wide text-slate-400">
-                      {field.label}
-                      <InfoPopover {...field.info} placement="left" />
-                    </label>
-                    {field.type === 'select' ? (
-                      <select
-                        value={value}
-                        onChange={(event) => setFilters({ [field.id]: event.target.value.toLowerCase() })}
-                        className="w-full rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-white focus:border-emerald-500 focus:outline-none"
-                      >
-                        {field.options?.map((option) => (
-                          <option key={option} value={option.toLowerCase()}>
-                            {option}
-                          </option>
-                        ))}
-                      </select>
-                    ) : field.type === 'range' ? (
-                      <input
-                        type="number"
-                        min={0}
-                        value={activeFilters[field.id] ?? ''}
-                        onChange={(event) => setFilters({ [field.id]: event.target.value ? Number(event.target.value) : undefined })}
-                        className="w-full rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-white focus:border-emerald-500 focus:outline-none"
-                        placeholder="Size in households"
-                      />
-                    ) : (
-                      <input
-                        type="text"
-                        value={activeFilters[field.id] ?? ''}
-                        onChange={(event) => setFilters({ [field.id]: event.target.value })}
-                        className="w-full rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-white focus:border-emerald-500 focus:outline-none"
-                        placeholder={field.placeholder}
-                      />
-                    )}
-                  </div>
-                );
-              })}
-            </div>
-            <p className="mt-3 text-[11px] uppercase tracking-wide text-emerald-400">Primary data source (est.): {group.source}</p>
-          </div>
-        ))}
-      </aside>
-      <section className="flex flex-col gap-6">
-        <PillToggle
-          options={[
-            { id: 'market', label: 'Market View' },
-            { id: 'map', label: 'Competitive Map' },
-            { id: 'compare', label: 'Compare' }
-          ]}
-          value={view}
-          onChange={(value) => setView(value)}
-        />
-        {view === 'market' ? (
-          <>
-            <BubbleChart
-              segments={segments}
-              data={bubbleData}
-              onSelect={(id) => setActiveSegment(id)}
-            />
-            <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-              {rankedSegments.map(({ segment, sim }) => (
-                <SegmentTile
-                  key={segment.id}
-                  name={segment.name}
-                  size={segment.size}
-                  payback={sim.payback}
-                  gm12={sim.gm12}
-                  traits={segment.traits}
-                  rationale={`Opportunity score ${(sim.opportunity / 100).toFixed(2)} • Conversion ${(sim.conversion * 100).toFixed(1)}%`}
-                  selected={cartSegmentIds.includes(segment.id)}
-                  onSelect={(checked) => (checked ? addToCart(segment.id) : removeFromCart(segment.id))}
-                  onAddToCart={() => addToCart(segment.id)}
-                  onSendToStudio={() => {
-                    addToCart(segment.id);
-                    navigate('/segment-studio');
-                  }}
-                  onPin={() => setActiveSegment(segment.id)}
-                />
-              ))}
-            </div>
-          </>
-        ) : null}
-        {view === 'map' ? (
-          <MapView
-            root={geoTree}
-            onSelectRegion={(path) => {
-              const deepest = path[path.length - 1];
-              if (deepest?.meta?.region) {
-                setFilters({ region: deepest.meta.region });
-              }
-              if (deepest?.meta?.dma) {
-                setFilters({ dma: deepest.meta.dma });
-              }
-              if (deepest?.meta?.zip3) {
-                setFilters({ zip3: deepest.meta.zip3 });
-              }
-            }}
-          />
-        ) : null}
-        {view === 'compare' ? (
-          <div className="card flex flex-col gap-4 border border-slate-800 p-4">
-            <h3 className="text-lg font-semibold text-white">Compare cohorts</h3>
-            <p className="text-sm text-slate-300">
-              Quickly compare top cohorts across payback, 12-mo GM, and projected net adds. Use this view when prioritizing a short list.
+    <div className="space-y-6">
+      <div className="card border border-emerald-500/20 bg-slate-900/70 p-5">
+        <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
+          <div>
+            <h1 className="text-2xl font-semibold text-white">Market Radar</h1>
+            <p className="mt-2 max-w-2xl text-sm text-slate-300">
+              Scan synthetic market signals to spot subscriber cohorts worth advancing into deeper design work.
             </p>
-            <div className="grid grid-cols-3 gap-3 text-sm">
-              <span className="text-xs uppercase tracking-wide text-slate-400">Cohort</span>
-              <span className="text-xs uppercase tracking-wide text-slate-400">Payback</span>
-              <span className="text-xs uppercase tracking-wide text-slate-400">12-mo GM</span>
-              {rankedSegments.map(({ segment, sim }) => (
-                <React.Fragment key={`compare-${segment.id}`}>
-                  <span className="font-semibold text-white">{segment.name}</span>
-                  <span>{typeof sim.payback === 'number' ? `${sim.payback} mo` : sim.payback}</span>
-                  <span>${sim.gm12.toLocaleString()}</span>
-                </React.Fragment>
-              ))}
-            </div>
           </div>
-        ) : null}
-      </section>
-      {activeSegment ? (
-        <RightRail
-          title={activeSegment.segment.name}
-          subtitle={`ID ${activeSegment.segment.id}`}
-          kpis={[
-            {
-              label: 'Payback (mo)',
-              value: typeof activeSegment.sim.payback === 'number' ? activeSegment.sim.payback : activeSegment.sim.payback,
-              info: {
-                title: 'CAC Payback (months)',
-                description: 'Months until fully-loaded CAC is covered by cumulative contribution.',
-                primarySource: 'Synth Cohort Econ'
-              }
-            },
-            {
-              label: '12-mo GM',
-              value: `$${activeSegment.sim.gm12.toLocaleString()}`,
-              info: {
-                title: '12-Month Incremental Gross Margin',
-                description: 'Gross margin over first 12 months after servicing costs and device amortization.',
-                primarySource: 'Synth Cohort Econ'
-              }
-            }
-          ]}
-          sections={rightRailSections}
-          action={
-            <button
-              onClick={() => {
-                addToCart(activeSegment.segment.id);
-                navigate('/segment-studio');
-              }}
-              className="w-full rounded-full bg-emerald-500 px-4 py-2 text-sm font-semibold text-slate-950 hover:bg-emerald-600"
-            >
-              Send to Segment Studio
-            </button>
-          }
-        />
-      ) : (
-        <div className="card border border-slate-800 p-4 text-sm text-slate-300">
-          Select a cohort to see details.
+          <InfoPopover
+            title="Market Radar overview"
+            description="Start here to explore the universe, tune filters, and shortlist the strongest cohorts before moving on."
+          />
         </div>
-      )}
-      <div className="col-span-3">
-        <SelectionTray
-          title="Cohorts in cart"
-          items={selectionItems}
-          metrics={selectionMetrics}
-          ctaLabel="Send to Segment Studio"
-          onCta={() => navigate('/segment-studio')}
-          disabled={!cartSegmentIds.length}
-        />
+        <div className="mt-4 grid gap-3 text-sm text-slate-200 md:grid-cols-3">
+          <div className="flex items-start gap-2">
+            <InfoPopover title="Filter quickly" description="Mix structured filters with quick commands to focus the cohort list." />
+            <span>Use filters or the intent bar to zero in on the customers you care most about.</span>
+          </div>
+          <div className="flex items-start gap-2">
+            <InfoPopover title="Visualize opportunity" description="Bubble, map, and compare views highlight scale, payback, and coverage." />
+            <span>Switch views to understand opportunity sizing and geographic hot spots.</span>
+          </div>
+          <div className="flex items-start gap-2">
+            <InfoPopover title="Advance confidently" description="Shortlist promising cohorts so they flow seamlessly into Segment Studio." />
+            <span>Shortlist the frontrunners and send them forward when you are ready to refine.</span>
+          </div>
+        </div>
+      </div>
+      <div className="grid grid-cols-[280px_1fr_320px] gap-6">
+        <aside className="flex flex-col gap-4">
+          <div className="card border border-slate-800 p-4">
+            <div className="flex items-center justify-between">
+              <p className="text-xs uppercase tracking-wide text-emerald-400">Workflow primer</p>
+              <InfoPopover title="Workflow primer" description="Remember the steps: explore, shortlist, then advance." />
+            </div>
+            <p className="mt-2 text-sm text-slate-300">
+              Filter the population or type a natural-language query. See recommended cohorts, inspect the visualization, and shortlist the best fits.
+            </p>
+          </div>
+          <div className="card border border-slate-800 p-4">
+            <div className="flex items-center justify-between">
+              <label className="text-xs uppercase tracking-wide text-slate-400">Command bar</label>
+              <InfoPopover title="Command bar" description="Type a short instruction to automatically adjust filters." />
+            </div>
+            <div className="mt-2 flex items-center gap-2">
+              <input
+                value={command}
+                onChange={(event) => setCommand(event.target.value)}
+                placeholder="ex: urban cohorts over 200k size"
+                className="flex-1 rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-white focus:border-emerald-500 focus:outline-none"
+              />
+              <button
+                onClick={handleCommand}
+                className="rounded-lg bg-emerald-500 px-3 py-2 text-sm font-semibold text-slate-950 hover:bg-emerald-600"
+              >
+                Apply
+              </button>
+            </div>
+            {intentSummary ? (
+              <span className="mt-3 inline-flex items-center gap-2 rounded-full bg-emerald-500/10 px-3 py-1 text-xs text-emerald-200">
+                <InfoPopover title="Intent summary" description="Lists the filters the command adjusted." />
+                What changed: {intentSummary}
+              </span>
+            ) : null}
+          </div>
+          {filterGroups.map((group) => (
+            <div key={group.id} className="card border border-slate-800 p-4">
+              <div className="flex items-center justify-between">
+                <h3 className="text-sm font-semibold text-white">{group.label}</h3>
+                <InfoPopover title={group.label} description={`Filters linked to the ${group.label} framework.`} />
+              </div>
+              <div className="mt-3 space-y-3">
+                {group.fields.map((field) => {
+                  const value = activeFilters[field.id] ?? (field.type === 'select' ? field.options?.[0]?.toLowerCase() ?? '' : '');
+                  return (
+                    <div key={field.id} className="space-y-1">
+                      <label className="flex items-center justify-between text-xs uppercase tracking-wide text-slate-400">
+                        {field.label}
+                        <InfoPopover title={field.info.title} description={field.info.description} placement="left" />
+                      </label>
+                      {field.type === 'select' ? (
+                        <select
+                          value={value}
+                          onChange={(event) => setFilters({ [field.id]: event.target.value.toLowerCase() })}
+                          className="w-full rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-white focus:border-emerald-500 focus:outline-none"
+                        >
+                          {field.options?.map((option) => (
+                            <option key={option} value={option.toLowerCase()}>
+                              {option}
+                            </option>
+                          ))}
+                        </select>
+                      ) : field.type === 'range' ? (
+                        <input
+                          type="number"
+                          min={0}
+                          value={activeFilters[field.id] ?? ''}
+                          onChange={(event) => setFilters({ [field.id]: event.target.value ? Number(event.target.value) : undefined })}
+                          className="w-full rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-white focus:border-emerald-500 focus:outline-none"
+                          placeholder="Size in households"
+                        />
+                      ) : (
+                        <input
+                          type="text"
+                          value={activeFilters[field.id] ?? ''}
+                          onChange={(event) => setFilters({ [field.id]: event.target.value })}
+                          className="w-full rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-white focus:border-emerald-500 focus:outline-none"
+                          placeholder={field.placeholder}
+                        />
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          ))}
+        </aside>
+        <section className="flex flex-col gap-6">
+          <div className="flex items-center justify-between">
+            <h2 className="text-lg font-semibold text-white">Choose your view</h2>
+            <InfoPopover title="View switcher" description="Toggle perspectives to validate scale, geography, or KPI comparisons." />
+          </div>
+          <PillToggle
+            options={[
+              { id: 'market', label: 'Market View' },
+              { id: 'map', label: 'Competitive Map' },
+              { id: 'compare', label: 'Compare' }
+            ]}
+            value={view}
+            onChange={(value) => setView(value)}
+          />
+          {view === 'market' ? (
+            <>
+              <BubbleChart
+                segments={segments}
+                data={bubbleData}
+                onSelect={(id) => setActiveSegment(id)}
+              />
+              <div className="flex items-center justify-between">
+                <h3 className="text-lg font-semibold text-white">Recommended cohorts</h3>
+                <InfoPopover title="Recommended cohorts" description="Shortlist from the live-ranked list below." />
+              </div>
+              <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+                {rankedSegments.map(({ segment, sim }) => (
+                  <SegmentTile
+                    key={segment.id}
+                    name={segment.name}
+                    size={segment.size}
+                    payback={sim.payback}
+                    gm12={sim.gm12}
+                    traits={segment.traits}
+                    rationale={`Opportunity score ${(sim.opportunity / 100).toFixed(2)} • Conversion ${(sim.conversion * 100).toFixed(1)}%`}
+                    selected={cartSegmentIds.includes(segment.id)}
+                    onSelect={(checked) => (checked ? addToCart(segment.id) : removeFromCart(segment.id))}
+                    onAddToCart={() => addToCart(segment.id)}
+                    onSendToStudio={() => {
+                      addToCart(segment.id);
+                      navigate('/segment-studio');
+                    }}
+                    onPin={() => setActiveSegment(segment.id)}
+                  />
+                ))}
+              </div>
+            </>
+          ) : null}
+          {view === 'map' ? (
+            <MapView
+              root={geoTree}
+              onSelectRegion={(path) => {
+                const deepest = path[path.length - 1];
+                if (deepest?.meta?.region) {
+                  setFilters({ region: deepest.meta.region });
+                }
+                if (deepest?.meta?.dma) {
+                  setFilters({ dma: deepest.meta.dma });
+                }
+                if (deepest?.meta?.zip3) {
+                  setFilters({ zip3: deepest.meta.zip3 });
+                }
+              }}
+            />
+          ) : null}
+          {view === 'compare' ? (
+            <div className="card flex flex-col gap-4 border border-slate-800 p-4">
+              <div className="flex items-center justify-between">
+                <h3 className="text-lg font-semibold text-white">Compare cohorts</h3>
+                <InfoPopover title="Comparison table" description="Line up short-listed cohorts before you commit to a path." />
+              </div>
+              <p className="text-sm text-slate-300">
+                Quickly compare top cohorts across payback, 12-mo GM, and projected net adds. Use this view when prioritizing a short list.
+              </p>
+              <div className="grid grid-cols-3 gap-3 text-sm">
+                <span className="text-xs uppercase tracking-wide text-slate-400">Cohort</span>
+                <span className="text-xs uppercase tracking-wide text-slate-400">Payback</span>
+                <span className="text-xs uppercase tracking-wide text-slate-400">12-mo GM</span>
+                {rankedSegments.map(({ segment, sim }) => (
+                  <React.Fragment key={`compare-${segment.id}`}>
+                    <span className="font-semibold text-white">{segment.name}</span>
+                    <span>{typeof sim.payback === 'number' ? `${sim.payback} mo` : sim.payback}</span>
+                    <span>${sim.gm12.toLocaleString()}</span>
+                  </React.Fragment>
+                ))}
+              </div>
+            </div>
+          ) : null}
+        </section>
+        {activeSegment ? (
+          <RightRail
+            title={activeSegment.segment.name}
+            subtitle={`ID ${activeSegment.segment.id}`}
+            kpis={[
+              {
+                label: 'Payback (mo)',
+                value: typeof activeSegment.sim.payback === 'number' ? activeSegment.sim.payback : activeSegment.sim.payback,
+                info: {
+                  title: 'CAC Payback (months)',
+                  description: 'Months until fully-loaded CAC is covered by cumulative contribution.'
+                }
+              },
+              {
+                label: '12-mo GM',
+                value: `$${activeSegment.sim.gm12.toLocaleString()}`,
+                info: {
+                  title: '12-Month Incremental Gross Margin',
+                  description: 'Gross margin over the first year after servicing costs and device amortization.'
+                }
+              }
+            ]}
+            sections={rightRailSections}
+            action={
+              <button
+                onClick={() => {
+                  addToCart(activeSegment.segment.id);
+                  navigate('/segment-studio');
+                }}
+                className="w-full rounded-full bg-emerald-500 px-4 py-2 text-sm font-semibold text-slate-950 hover:bg-emerald-600"
+              >
+                Move to Segment Studio
+              </button>
+            }
+          />
+        ) : (
+          <div className="card border border-slate-800 p-4 text-sm text-slate-300">
+            Select a cohort to see details.
+          </div>
+        )}
+        <div className="col-span-3">
+          <SelectionTray
+            title="Shortlisted cohorts"
+            items={selectionItems}
+            metrics={selectionMetrics}
+            ctaLabel="Move to Segment Studio"
+            onCta={() => navigate('/segment-studio')}
+            disabled={!cartSegmentIds.length}
+          />
+        </div>
       </div>
     </div>
   );

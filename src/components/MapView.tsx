@@ -1,4 +1,5 @@
 import React from 'react';
+import InfoPopover from './InfoPopover';
 
 export type GeoNode = {
   id: string;
@@ -45,14 +46,17 @@ const MapView: React.FC<Props> = ({ root, onSelectRegion }) => {
           <h3 className="text-lg font-semibold text-white">Competitive Map</h3>
           <p className="text-xs text-slate-400">Double-click to drill into {path.length === 0 ? 'DMA' : path.length === 1 ? 'ZIP3' : 'details'} level.</p>
         </div>
-        {path.length > 0 ? (
-          <button
-            onClick={goBack}
-            className="rounded-full border border-emerald-500/40 px-3 py-1 text-xs text-emerald-200 hover:bg-emerald-500/10"
-          >
-            ← Back to {path.length === 1 ? 'States' : 'DMAs'}
-          </button>
-        ) : null}
+        <div className="flex items-center gap-2">
+          <InfoPopover title="Competitive map" description="Use the map to spot geographies where payback improves fastest." />
+          {path.length > 0 ? (
+            <button
+              onClick={goBack}
+              className="rounded-full border border-emerald-500/40 px-3 py-1 text-xs text-emerald-200 hover:bg-emerald-500/10"
+            >
+              ← Back to {path.length === 1 ? 'States' : 'DMAs'}
+            </button>
+          ) : null}
+        </div>
       </div>
       <div className="grid flex-1 grid-cols-3 gap-2">
         {nodes.map((node) => (
@@ -75,9 +79,6 @@ const MapView: React.FC<Props> = ({ root, onSelectRegion }) => {
           </button>
         ))}
       </div>
-      <p className="text-[11px] uppercase tracking-wide text-emerald-400">
-        Primary data source (est.): GeoSynth Coverage / Competitive Intelligence
-      </p>
     </div>
   );
 };

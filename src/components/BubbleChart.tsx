@@ -1,4 +1,5 @@
 import { ResponsiveContainer, Scatter, ScatterChart, Tooltip, XAxis, YAxis, ZAxis, CartesianGrid } from 'recharts';
+import InfoPopover from './InfoPopover';
 import { Segment } from '../store/global';
 
 export type BubblePoint = {
@@ -31,6 +32,7 @@ const BubbleChart = ({ segments, data, onSelect }: Props) => {
           <h3 className="text-lg font-semibold text-white">Market Opportunity View</h3>
           <p className="text-xs text-slate-400">Bubble size = projected net adds • X = opportunity score • Y = cohort size</p>
         </div>
+        <InfoPopover title="Opportunity bubbles" description="Click a bubble to inspect a cohort and shortlist it." />
       </div>
       <ResponsiveContainer width="100%" height="100%">
         <ScatterChart margin={{ top: 30, right: 30, left: 0, bottom: 20 }}>

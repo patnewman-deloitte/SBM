@@ -40,9 +40,15 @@ const SubsegmentTile = ({
         </span>
       ) : null}
       <header className="flex items-start justify-between gap-3">
-        <div>
-          <h3 className="text-lg font-semibold text-white">{name}</h3>
-          <p className="text-xs text-slate-400">{(sizeShare * 100).toFixed(1)}% of cohort</p>
+        <div className="space-y-1">
+          <div className="flex items-center gap-2">
+            <h3 className="text-lg font-semibold text-white">{name}</h3>
+            <InfoPopover title="Micro-segment tile" description="Review this sub-audience and decide if it belongs in your plan." />
+          </div>
+          <div className="flex items-center gap-2 text-xs text-slate-400">
+            <span>{(sizeShare * 100).toFixed(1)}% of cohort</span>
+            <InfoPopover title="Size share" description="Portion of the parent cohort represented by this micro-segment." />
+          </div>
         </div>
         <label className="flex items-center gap-1 text-emerald-300">
           <input
@@ -58,34 +64,30 @@ const SubsegmentTile = ({
         <div className="card border border-slate-800/60 bg-slate-900/70 p-3">
           <div className="flex items-center justify-between text-xs text-slate-400">
             <span>CAC Payback</span>
-            <InfoPopover
-              title="CAC Payback (months)"
-              description="Months until fully-loaded CAC is covered by cumulative contribution."
-              primarySource="Synth Cohort Econ"
-            />
+            <InfoPopover title="CAC Payback (months)" description="Months until fully-loaded CAC is covered by cumulative contribution." />
           </div>
           <p className="mt-1 text-xl font-semibold text-white">{typeof payback === 'number' ? `${payback}` : payback}</p>
         </div>
         <div className="card border border-slate-800/60 bg-slate-900/70 p-3">
           <div className="flex items-center justify-between text-xs text-slate-400">
             <span>12-mo Incremental GM</span>
-            <InfoPopover
-              title="12-Month Incremental Gross Margin"
-              description="Gross margin over first 12 months after servicing costs and device amortization."
-              primarySource="Synth Cohort Econ"
-            />
+            <InfoPopover title="12-Month Incremental Gross Margin" description="Gross margin over first 12 months after servicing costs and device amortization." />
           </div>
           <p className="mt-1 text-xl font-semibold text-white">${gm12.toLocaleString()}</p>
         </div>
       </div>
-      <div className="flex flex-wrap gap-2">
+      <div className="flex flex-wrap items-center gap-2">
         {traits.slice(0, 3).map((trait) => (
           <span key={trait} className="info-chip">
             {trait}
           </span>
         ))}
+        <InfoPopover title="Trait highlights" description="Use these cues to align messaging and offer levers." />
       </div>
-      <p className="text-sm text-slate-300">{rationale}</p>
+      <p className="flex items-start gap-2 text-sm text-slate-300">
+        <InfoPopover title="Rationale" description="Quick reminder of why this micro-segment matters." />
+        <span>{rationale}</span>
+      </p>
       {highlight ? (
         <p className="text-xs uppercase tracking-wide text-emerald-300">
           Why highlighted: optimal mix of economics, reach, and signal richness.
