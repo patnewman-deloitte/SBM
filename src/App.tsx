@@ -2,13 +2,17 @@ import { NavLink, Route, Routes, useLocation, useNavigate } from 'react-router-d
 import MarketRadar from './app/routes/MarketRadar';
 import SegmentStudio from './app/routes/SegmentStudio';
 import CampaignDesigner from './app/routes/CampaignDesigner';
+import ExecutionHub from './tabs/ExecutionHub';
+import MonitoringDashboard from './tabs/MonitoringDashboard';
 import { useGlobalStore } from './store/global';
 import { useEffect } from 'react';
 
 const tabs = [
   { path: '/', label: 'Market Radar' },
   { path: '/segment-studio', label: 'Segment Studio' },
-  { path: '/campaign-designer', label: 'Offering & Campaign Designer' }
+  { path: '/campaign-designer', label: 'Offering & Campaign Designer' },
+  { path: '/execution-hub', label: 'Execution Hub' },
+  { path: '/monitoring', label: 'Monitoring Dashboard' }
 ];
 
 const App = () => {
@@ -66,6 +70,8 @@ const App = () => {
           <Route path="/" element={<MarketRadar />} />
           <Route path="/segment-studio" element={<SegmentStudio />} />
           <Route path="/campaign-designer" element={<CampaignDesigner />} />
+          <Route path="/execution-hub" element={<ExecutionHub />} />
+          <Route path="/monitoring" element={<MonitoringDashboard />} />
         </Routes>
       </main>
     </div>

@@ -4,11 +4,12 @@ export type KpiTileProps = {
   label: string;
   value: string | number;
   suffix?: string;
+  sublabel?: string;
   info?: InfoProps;
   onClick?: () => void;
 };
 
-const KpiTile = ({ label, value, suffix, info, onClick }: KpiTileProps) => {
+const KpiTile = ({ label, value, suffix, sublabel, info, onClick }: KpiTileProps) => {
   return (
     <button
       type={onClick ? 'button' : undefined}
@@ -27,6 +28,7 @@ const KpiTile = ({ label, value, suffix, info, onClick }: KpiTileProps) => {
         </span>
         {suffix ? <span className="text-sm text-slate-400">{suffix}</span> : null}
       </div>
+      {sublabel ? <p className="text-xs text-slate-400">{sublabel}</p> : null}
     </button>
   );
 };

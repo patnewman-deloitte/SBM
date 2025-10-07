@@ -4,6 +4,8 @@ import ReactDOM from 'react-dom/client';
 import { BrowserRouter } from 'react-router-dom';
 import App from './App';
 import { useGlobalStore } from './store/global';
+import { AppStoreProvider } from './store/AppStore';
+import { ToastProvider } from './components/ToastProvider';
 
 const Root = () => {
   const hydrate = useGlobalStore((s) => s.hydrate);
@@ -13,9 +15,13 @@ const Root = () => {
   }, [hydrate]);
 
   return (
-    <BrowserRouter>
-      <App />
-    </BrowserRouter>
+    <ToastProvider>
+      <AppStoreProvider>
+        <BrowserRouter>
+          <App />
+        </BrowserRouter>
+      </AppStoreProvider>
+    </ToastProvider>
   );
 };
 
