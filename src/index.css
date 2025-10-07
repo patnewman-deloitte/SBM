@@ -1,0 +1,36 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  font-family: 'Inter', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  color: #0f172a;
+  background-color: #f8fafc;
+}
+
+body {
+  margin: 0;
+  min-height: 100vh;
+  background: linear-gradient(180deg, #0f172a 0%, #1e293b 30%, #f8fafc 100%);
+}
+
+a {
+  color: inherit;
+}
+
+.focus-outline:focus-visible {
+  outline: 3px solid theme('colors.primary.DEFAULT');
+  outline-offset: 2px;
+}
+
+.card {
+  @apply bg-slate-900/80 backdrop-blur rounded-2xl text-slate-50 shadow-soft;
+}
+
+.card-light {
+  @apply bg-white rounded-2xl shadow-lg;
+}
+
+.badge {
+  @apply inline-flex items-center gap-1 rounded-full bg-emerald-500/10 text-emerald-200 px-3 py-1 text-xs font-medium;
+}
