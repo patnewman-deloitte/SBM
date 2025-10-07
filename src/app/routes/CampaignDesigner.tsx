@@ -274,7 +274,7 @@ const CampaignDesigner: React.FC = () => {
           </details>
         </div>
       </aside>
-      <section className="flex flex-col gap-6">
+      <section className="flex min-w-0 flex-col gap-6">
         <div className="card border border-slate-800 p-5">
           <div className="flex items-start justify-between gap-4">
             <div>
@@ -291,16 +291,25 @@ const CampaignDesigner: React.FC = () => {
                 Digital-first bundles for priority micro-segments with tight promo discipline and high-margin channel mix.
               </p>
               <div className="mt-6 flex flex-wrap gap-4 text-sm">
-                <div>
-                  <p className="text-xs uppercase text-emerald-200">Payback</p>
+                <div className="space-y-1">
+                  <div className="flex items-center gap-2 text-xs uppercase text-emerald-200">
+                    <span>Payback</span>
+                    <InfoPopover title="Payback highlight" description="Shows the timeline to recover acquisition costs for the leading scenario." />
+                  </div>
                   <p className="text-lg font-semibold">{simResults ? (typeof simResults.blended.paybackMonths === 'number' ? `${simResults.blended.paybackMonths} mo` : simResults.blended.paybackMonths) : '–'}</p>
                 </div>
-                <div>
-                  <p className="text-xs uppercase text-emerald-200">12-mo GM</p>
+                <div className="space-y-1">
+                  <div className="flex items-center gap-2 text-xs uppercase text-emerald-200">
+                    <span>12-mo GM</span>
+                    <InfoPopover title="Gross margin highlight" description="Captures first-year gross margin after servicing and subsidies." />
+                  </div>
                   <p className="text-lg font-semibold">{simResults ? `$${simResults.blended.gm12m.toLocaleString()}` : '–'}</p>
                 </div>
-                <div>
-                  <p className="text-xs uppercase text-emerald-200">Conversion</p>
+                <div className="space-y-1">
+                  <div className="flex items-center gap-2 text-xs uppercase text-emerald-200">
+                    <span>Conversion</span>
+                    <InfoPopover title="Conversion highlight" description="Percent of targeted audience expected to activate." />
+                  </div>
                   <p className="text-lg font-semibold">{simResults ? `${(simResults.blended.conversionRate * 100).toFixed(1)}%` : '–'}</p>
                 </div>
               </div>
@@ -441,7 +450,10 @@ const CampaignDesigner: React.FC = () => {
                   </div>
                   <div className="mt-3 grid grid-cols-2 gap-3">
                     <label className="flex flex-col gap-1 text-xs uppercase tracking-wide text-slate-400">
-                      Monthly price (${currentOffer.monthlyPrice})
+                      <span className="flex items-center justify-between">
+                        <span>Monthly price (${currentOffer.monthlyPrice})</span>
+                        <InfoPopover title="Monthly price" description="Drag to set the customer-facing price point." placement="left" />
+                      </span>
                       <input
                         type="range"
                         min={40}
@@ -451,7 +463,10 @@ const CampaignDesigner: React.FC = () => {
                       />
                     </label>
                     <label className="flex flex-col gap-1 text-xs uppercase tracking-wide text-slate-400">
-                      Promo months ({currentOffer.promoMonths})
+                      <span className="flex items-center justify-between">
+                        <span>Promo months ({currentOffer.promoMonths})</span>
+                        <InfoPopover title="Promo months" description="Number of months the promotional rate applies." placement="left" />
+                      </span>
                       <input
                         type="range"
                         min={0}
@@ -461,7 +476,10 @@ const CampaignDesigner: React.FC = () => {
                       />
                     </label>
                     <label className="flex flex-col gap-1 text-xs uppercase tracking-wide text-slate-400">
-                      Promo value (${currentOffer.promoValue})
+                      <span className="flex items-center justify-between">
+                        <span>Promo value (${currentOffer.promoValue})</span>
+                        <InfoPopover title="Promo value" description="Adjust incentive depth applied during the promo window." placement="left" />
+                      </span>
                       <input
                         type="range"
                         min={0}
@@ -471,7 +489,10 @@ const CampaignDesigner: React.FC = () => {
                       />
                     </label>
                     <label className="flex flex-col gap-1 text-xs uppercase tracking-wide text-slate-400">
-                      Device subsidy (${currentOffer.deviceSubsidy})
+                      <span className="flex items-center justify-between">
+                        <span>Device subsidy (${currentOffer.deviceSubsidy})</span>
+                        <InfoPopover title="Device subsidy" description="Controls the equipment incentive amortized in the sim." placement="left" />
+                      </span>
                       <input
                         type="range"
                         min={0}

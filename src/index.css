@@ -15,5 +15,5 @@ body {
 }
 
 .info-chip {
-  @apply inline-flex items-center gap-1 rounded-full bg-emerald-500/10 px-3 py-1 text-xs font-medium text-emerald-300;
+  @apply inline-flex items-center gap-1 rounded-full bg-emerald-500/10 px-3 py-1 text-xs font-medium text-emerald-300 break-words whitespace-normal;
 }

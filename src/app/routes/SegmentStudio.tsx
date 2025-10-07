@@ -56,6 +56,7 @@ const SegmentStudio: React.FC = () => {
 
   const sortedSubsegments = [...subsegments].sort((a, b) => b.micro.attractiveness - a.micro.attractiveness);
   const topThreeIds = sortedSubsegments.slice(0, 3).map((s) => s.micro.id);
+  const nextBest = sortedSubsegments[1];
 
   const toggleSelection = (microId: string, checked: boolean) => {
     const current = new Set(selectedMicroIds);
@@ -160,7 +161,7 @@ const SegmentStudio: React.FC = () => {
             </div>
           </div>
         </aside>
-        <section className="flex flex-col gap-4">
+        <section className="flex min-w-0 flex-col gap-4">
           {recommended ? (
             <div className="card border border-emerald-500/30 bg-emerald-500/10 p-5">
               <div className="flex items-start justify-between gap-4">
@@ -169,16 +170,23 @@ const SegmentStudio: React.FC = () => {
                   <h2 className="text-xl font-semibold text-white">
                     Lead with {offer.name} for {recommended.segment.name} — {recommended.micro.name}
                   </h2>
-                  <p className="mt-2 text-sm text-emerald-100">
+                  <p className="mt-2 max-w-3xl text-sm text-emerald-100">
                     Focus on a digital-first mix and lean on bundled value to win share quickly.
                   </p>
                 </div>
                 <InfoPopover title="Recommended play" description="Use this starter move and fine-tune as you learn more." />
               </div>
               <ul className="mt-4 list-disc space-y-2 pl-5 text-sm text-emerald-100">
-                <li>Top-ranked attractiveness ({Math.round(recommended.micro.attractiveness * 100)} index) with strong conversion potential.</li>
-                <li>Offer match: {offer.name} aligns with traits {recommended.micro.traits.slice(0, 2).join(' & ')}.</li>
-                <li>Payback expectation: {typeof recommended.sim.paybackMonths === 'number' ? `${recommended.sim.paybackMonths} months` : recommended.sim.paybackMonths} with ${recommended.sim.gm12m.toLocaleString()} GM.</li>
+                <li>
+                  Highest attractiveness index ({Math.round(recommended.micro.attractiveness * 100)}) versus {nextBest ? `${Math.round(nextBest.micro.attractiveness * 100)} for the runner-up, translating to ${(recommended.sim.conversionRate * 100).toFixed(1)}% conversion` : `${(recommended.sim.conversionRate * 100).toFixed(1)}% conversion`}.
+                </li>
+                <li>
+                  Sized opportunity: ~{Math.round(recommended.micro.sizeShare * recommended.segment.size).toLocaleString()} reachable households with{' '}
+                  {Math.round((defaultMix['ch-search'] + defaultMix['ch-social'] + defaultMix['ch-email']) * 100)}% digital coverage and projected net adds of {Math.round(recommended.sim.netAdds).toLocaleString()}.
+                </li>
+                <li>
+                  Economics check: payback {typeof recommended.sim.paybackMonths === 'number' ? `${recommended.sim.paybackMonths} mo` : recommended.sim.paybackMonths}, {recommended.sim.marginPct}% margin, and {recommended.sim.breakdown.promoCost ? `$${recommended.sim.breakdown.promoCost.toLocaleString()}` : '$0'} promo spend delivering {recommended.sim.gm12m ? `$${recommended.sim.gm12m.toLocaleString()}` : '$0'} gross margin.
+                </li>
               </ul>
             </div>
           ) : null}
@@ -220,9 +228,14 @@ const SegmentStudio: React.FC = () => {
                 body: (
                   <div className="space-y-2 text-sm">
                     <p className="font-semibold text-white">Goal</p>
-                    <p>Drive high-value conversions among {recommended.segment.name} using {offer.name} with a heavier digital mix.</p>
+                    <p className="break-words">
+                      Drive high-value conversions among {recommended.segment.name} using {offer.name}, targeting {(recommended.sim.conversionRate * 100).toFixed(1)}% conversion and{' '}
+                      {Math.round(recommended.sim.netAdds).toLocaleString()} net adds within guardrails.
+                    </p>
                     <p className="font-semibold text-white">Offer archetype</p>
-                    <p>{offer.name} — ${offer.monthlyPrice}/mo, promo {offer.promoMonths} mo, device subsidy ${offer.deviceSubsidy}.</p>
+                    <p className="break-words">
+                      {offer.name} — ${offer.monthlyPrice}/mo, promo {offer.promoMonths} mo, device subsidy ${offer.deviceSubsidy}. Recommended mix keeps CAC at ${recommended.sim.breakdown.cac.toLocaleString()} with {recommended.sim.marginPct}% margin.
+                    </p>
                   </div>
                 )
               },
@@ -252,9 +265,15 @@ const SegmentStudio: React.FC = () => {
                 },
                 body: (
                   <ul className="list-disc space-y-1 pl-4 text-sm">
-                    <li>High digital responsiveness — {Math.round(recommended.micro.attractiveness * 100)} index.</li>
-                    <li>Offer bundling aligns with traits: {recommended.micro.traits.slice(0, 2).join(', ')}.</li>
-                    <li>Projected payback {typeof recommended.sim.paybackMonths === 'number' ? `${recommended.sim.paybackMonths} mo` : recommended.sim.paybackMonths}.</li>
+                    <li>
+                      Digital responsiveness index {Math.round(recommended.micro.attractiveness * 100)} enables {Math.round((defaultMix['ch-search'] + defaultMix['ch-social'] + defaultMix['ch-email']) * 100)}% reach through efficient channels.
+                    </li>
+                    <li>
+                      Offer bundling aligns with traits {recommended.micro.traits.slice(0, 3).join(', ')} and defends versus {recommended.segment.traits.slice(0, 1).join(', ') || 'competitors'}.
+                    </li>
+                    <li>
+                      Financial guardrails hold: payback {typeof recommended.sim.paybackMonths === 'number' ? `${recommended.sim.paybackMonths} mo` : recommended.sim.paybackMonths}, 12-mo GM {recommended.sim.gm12m ? `$${recommended.sim.gm12m.toLocaleString()}` : '$0'}, margin {recommended.sim.marginPct}%.
+                    </li>
                   </ul>
                 )
               }

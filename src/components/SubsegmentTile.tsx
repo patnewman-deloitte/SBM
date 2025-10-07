@@ -28,7 +28,7 @@ const SubsegmentTile = ({
 }: SubsegmentTileProps) => {
   return (
     <article
-      className={`card relative flex flex-col gap-4 border p-5 transition ${
+      className={`card relative flex min-w-0 flex-col gap-4 border p-5 transition ${
         highlight
           ? 'border-emerald-500/60 shadow-emerald-500/20 before:absolute before:left-0 before:top-0 before:h-full before:w-1 before:bg-emerald-500'
           : 'border-slate-800 hover:border-emerald-500/40'
@@ -42,10 +42,10 @@ const SubsegmentTile = ({
       <header className="flex items-start justify-between gap-3">
         <div className="space-y-1">
           <div className="flex items-center gap-2">
-            <h3 className="text-lg font-semibold text-white">{name}</h3>
+            <h3 className="min-w-0 break-words text-lg font-semibold text-white">{name}</h3>
             <InfoPopover title="Micro-segment tile" description="Review this sub-audience and decide if it belongs in your plan." />
           </div>
-          <div className="flex items-center gap-2 text-xs text-slate-400">
+          <div className="flex flex-wrap items-center gap-2 text-xs text-slate-400">
             <span>{(sizeShare * 100).toFixed(1)}% of cohort</span>
             <InfoPopover title="Size share" description="Portion of the parent cohort represented by this micro-segment." />
           </div>
@@ -86,7 +86,7 @@ const SubsegmentTile = ({
       </div>
       <p className="flex items-start gap-2 text-sm text-slate-300">
         <InfoPopover title="Rationale" description="Quick reminder of why this micro-segment matters." />
-        <span>{rationale}</span>
+        <span className="break-words">{rationale}</span>
       </p>
       {highlight ? (
         <p className="text-xs uppercase tracking-wide text-emerald-300">
