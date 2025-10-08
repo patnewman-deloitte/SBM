@@ -299,7 +299,8 @@ const SegmentStudio: React.FC = () => {
                       Digital responsiveness index {Math.round(recommended.micro.attractiveness * 100)} enables {Math.round((defaultMix['ch-search'] + defaultMix['ch-social'] + defaultMix['ch-email']) * 100)}% reach through efficient channels.
                     </li>
                     <li>
-                      Offer bundling aligns with traits {recommended.micro.traits.slice(0, 3).join(', ')} and defends versus {recommended.segment?.traits.slice(0, 1).join(', ') || 'competitors'}.
+                      Offer bundling aligns with traits {recommended.micro.traits.slice(0, 3).join(', ')} and defends versus{' '}
+                      {((recommended.segment?.traits ?? []).slice(0, 1).join(', ')) || 'competitors'}.
                     </li>
                     <li>
                       Financial guardrails hold: payback {typeof recommended.sim.paybackMonths === 'number' ? `${recommended.sim.paybackMonths} mo` : recommended.sim.paybackMonths}, 12-mo GM {recommended.sim.gm12m ? `$${recommended.sim.gm12m.toLocaleString()}` : '$0'}, margin {recommended.sim.marginPct}%.
