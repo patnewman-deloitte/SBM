@@ -6,6 +6,14 @@ import SelectionTray from '../../components/SelectionTray';
 import SubsegmentTile from '../../components/SubsegmentTile';
 import { simulateAudience } from '../../sim/tinySim';
 import { useGlobalStore } from '../../store/global';
+import type { MicroSegment, Segment } from '../../store/global';
+import type { SimResult } from '../../sim/tinySim';
+
+const isDefined = <T,>(value: T | null | undefined): value is T => value != null;
+function hasSegment<T extends { segment?: Segment | null }>(value: T): value is T & { segment: Segment } {
+  // Guard against micro-segments that have not been hydrated with a parent cohort.
+  return !!value.segment && typeof value.segment.size === 'number';
+}
 
 const defaultMix = {
   'ch-search': 0.32,
@@ -13,6 +21,13 @@ const defaultMix = {
   'ch-email': 0.16,
   'ch-retail': 0.18,
   'ch-field': 0.1
+};
+
+type SubsegmentEntry = {
+  micro: MicroSegment & { sizeShare: number };
+  segment?: Segment | null;
+  sim: SimResult;
+  rank: number;
 };
 
 const SegmentStudio: React.FC = () => {
@@ -28,17 +43,20 @@ const SegmentStudio: React.FC = () => {
 
   const offer = offers[1] ?? offers[0];
 
-  const sourceCohorts = cartSegmentIds.map((id) => segments.find((s) => s.id === id)).filter(Boolean);
+  const sourceCohorts = React.useMemo<Segment[]>(
+    () => cartSegmentIds.map((id) => segments.find((s) => s.id === id)).filter(isDefined),
+    [cartSegmentIds, segments]
+  );
 
-  const subsegments = React.useMemo(() => {
+  const subsegments = React.useMemo<SubsegmentEntry[]>(() => {
     return sourceCohorts.flatMap((segment) => {
-      const micros = microSegmentsByParent[segment!.id] ?? [];
+      const micros = microSegmentsByParent[segment.id] ?? [];
       const total = micros.reduce((sum, micro) => sum + micro.sizeShare, 0) || 1;
       return micros.map((micro, index) => {
         const normalized = { ...micro, sizeShare: micro.sizeShare / total };
         const sim = simulateAudience({
           micro: normalized,
-          segmentSize: segment!.size,
+          segmentSize: segment.size,
           offer,
           channelMix: defaultMix,
           assumptions,
@@ -54,9 +72,29 @@ const SegmentStudio: React.FC = () => {
     });
   }, [assumptions, channels, microSegmentsByParent, offer, sourceCohorts]);
 
-  const sortedSubsegments = [...subsegments].sort((a, b) => b.micro.attractiveness - a.micro.attractiveness);
-  const topThreeIds = sortedSubsegments.slice(0, 3).map((s) => s.micro.id);
-  const nextBest = sortedSubsegments[1];
+  const sortedSubsegments = React.useMemo(
+    () => [...subsegments].sort((a, b) => b.micro.attractiveness - a.micro.attractiveness),
+    [subsegments]
+  );
+  const rankedWithSegments = React.useMemo(
+    () => sortedSubsegments.filter(hasSegment),
+    [sortedSubsegments]
+  );
+  const topThreeIds = React.useMemo(
+    () => rankedWithSegments.slice(0, 3).map((s) => s.micro.id),
+    [rankedWithSegments]
+  );
+  const recommended = rankedWithSegments[0];
+  const nextBest = rankedWithSegments[1];
+  const gmCandidate = recommended?.sim.gm12m;
+  const recommendedGmValue = typeof gmCandidate === 'number' && Number.isFinite(gmCandidate) ? gmCandidate : 0;
+  const paybackCandidate = recommended?.sim.paybackMonths;
+  const recommendedPaybackValue =
+    typeof paybackCandidate === 'number'
+      ? paybackCandidate
+      : typeof paybackCandidate === 'string'
+        ? paybackCandidate
+        : '–';
 
   const toggleSelection = (microId: string, checked: boolean) => {
     const current = new Set(selectedMicroIds);
@@ -76,29 +114,41 @@ const SegmentStudio: React.FC = () => {
         { label: '12-mo GM', value: '–' }
       ];
     }
-    let totalShare = 0;
-    let totalPayback = 0;
-    let totalGm = 0;
-    selectedMicroIds.forEach((id) => {
-      const item = subsegments.find((sub) => sub.micro.id === id);
-      if (!item) return;
-      totalShare += item.micro.sizeShare * item.segment.size;
-      totalGm += item.sim.gm12m * item.segment.size;
-      totalPayback += (typeof item.sim.paybackMonths === 'number' ? item.sim.paybackMonths : 24) * item.segment.size;
-    });
-    const denominator = selectedMicroIds.reduce((sum, id) => {
-      const item = subsegments.find((sub) => sub.micro.id === id);
-      if (!item) return sum;
-      return sum + item.segment.size;
-    }, 0);
+    const selected = selectedMicroIds
+      .map((id) => subsegments.find((sub) => sub.micro.id === id))
+      .filter(isDefined)
+      .filter(hasSegment);
+    if (!selected.length) {
+      return [
+        { label: 'Combined size', value: '0%' },
+        { label: 'Blended payback', value: '–' },
+        { label: '12-mo GM', value: '–' }
+      ];
+    }
+    const totals = selected.reduce(
+      (acc, item) => {
+        const segSize = item.segment.size;
+        const gm12 = Number.isFinite(item.sim.gm12m) ? item.sim.gm12m : 0;
+        const rawPayback =
+          typeof item.sim.paybackMonths === 'number' ? item.sim.paybackMonths : Number(item.sim.paybackMonths);
+        const payback = Number.isFinite(rawPayback) ? rawPayback : 24;
+        acc.totalShare += item.micro.sizeShare * segSize;
+        acc.totalGm += gm12 * segSize;
+        acc.totalPayback += payback * segSize;
+        acc.denominator += segSize;
+        return acc;
+      },
+      { totalShare: 0, totalGm: 0, totalPayback: 0, denominator: 0 }
+    );
+    const combinedSize = totals.denominator ? ((totals.totalShare / totals.denominator) * 100).toFixed(1) : '0.0';
+    const blendedPayback = totals.denominator ? Math.round(totals.totalPayback / totals.denominator) : null;
+    const blendedGm = totals.denominator ? Math.round(totals.totalGm / totals.denominator) : null;
     return [
-      { label: 'Combined size', value: `${((totalShare / Math.max(1, denominator)) * 100).toFixed(1)}%` },
-      { label: 'Blended payback', value: denominator ? `${Math.round(totalPayback / denominator)} mo` : '–' },
-      { label: '12-mo GM', value: denominator ? `$${Math.round(totalGm / denominator).toLocaleString()}` : '–' }
+      { label: 'Combined size', value: `${combinedSize}%` },
+      { label: 'Blended payback', value: blendedPayback !== null ? `${blendedPayback} mo` : '–' },
+      { label: '12-mo GM', value: blendedGm !== null ? `$${blendedGm.toLocaleString()}` : '–' }
     ];
   }, [selectedMicroIds, subsegments]);
-
-  const recommended = sortedSubsegments[0];
 
   return (
     <div className="space-y-6">
@@ -148,13 +198,13 @@ const SegmentStudio: React.FC = () => {
             </div>
             <div className="mt-2 space-y-2">
               {sourceCohorts.map((segment) => (
-                <div key={segment!.id} className="rounded-lg border border-slate-800 bg-slate-900/70 p-3 text-xs text-slate-300">
+                <div key={segment.id} className="rounded-lg border border-slate-800 bg-slate-900/70 p-3 text-xs text-slate-300">
                   <div className="flex items-center justify-between">
-                    <p className="text-sm font-semibold text-white">{segment!.name}</p>
+                    <p className="text-sm font-semibold text-white">{segment.name}</p>
                     <InfoPopover title="Cohort details" description="Size and trait summary for this cohort." placement="left" />
                   </div>
-                  <p>{segment!.size.toLocaleString()} households</p>
-                  <p>Primary traits: {segment!.traits.slice(0, 2).join(', ')}</p>
+                  <p>{segment.size.toLocaleString()} households</p>
+                  <p>Primary traits: {segment.traits.slice(0, 2).join(', ')}</p>
                 </div>
               ))}
               {!sourceCohorts.length ? <p className="text-xs text-slate-500">No cohorts yet—head back to Market Radar.</p> : null}
@@ -185,7 +235,12 @@ const SegmentStudio: React.FC = () => {
                   {Math.round((defaultMix['ch-search'] + defaultMix['ch-social'] + defaultMix['ch-email']) * 100)}% digital coverage and projected net adds of {Math.round(recommended.sim.netAdds).toLocaleString()}.
                 </li>
                 <li>
-                  Economics check: payback {typeof recommended.sim.paybackMonths === 'number' ? `${recommended.sim.paybackMonths} mo` : recommended.sim.paybackMonths}, {recommended.sim.marginPct}% margin, and {recommended.sim.breakdown.promoCost ? `$${recommended.sim.breakdown.promoCost.toLocaleString()}` : '$0'} promo spend delivering {recommended.sim.gm12m ? `$${recommended.sim.gm12m.toLocaleString()}` : '$0'} gross margin.
+                  Economics check: payback
+                  {typeof recommended.sim.paybackMonths === 'number'
+                    ? ` ${recommended.sim.paybackMonths} mo`
+                    : ` ${recommended.sim.paybackMonths}`}
+                  , {recommended.sim.marginPct}% margin, and {recommended.sim.breakdown.promoCost ? `$${recommended.sim.breakdown.promoCost.toLocaleString()}` : '$0'} promo spend delivering
+                  {recommendedGmValue ? ` $${recommendedGmValue.toLocaleString()}` : ' $0'} gross margin.
                 </li>
               </ul>
             </div>
@@ -195,21 +250,26 @@ const SegmentStudio: React.FC = () => {
             <InfoPopover title="Micro-segment grid" description="Select the audiences that deserve investment." />
           </div>
           <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-            {sortedSubsegments.map((entry) => (
-              <SubsegmentTile
-                key={entry.micro.id}
-                name={`${entry.segment.name} — ${entry.micro.name}`}
-                rank={entry.rank}
-                sizeShare={entry.micro.sizeShare}
-                payback={entry.sim.paybackMonths}
-                gm12={entry.sim.gm12m}
-                traits={entry.micro.traits}
-                rationale={`Attractiveness ${(entry.micro.attractiveness * 100).toFixed(0)} • Conversion ${(entry.sim.conversionRate * 100).toFixed(1)}%`}
-                selected={selectedMicroIds.includes(entry.micro.id)}
-                highlight={topThreeIds.includes(entry.micro.id)}
-                onSelect={(checked) => toggleSelection(entry.micro.id, checked)}
-              />
-            ))}
+            {sortedSubsegments.map((entry) => {
+              const segmentName = hasSegment(entry) ? entry.segment.name : 'Unassigned segment';
+              const label = `${segmentName} — ${entry.micro.name}`;
+              const gm12Value = Number.isFinite(entry.sim.gm12m) ? entry.sim.gm12m : 0;
+              return (
+                <SubsegmentTile
+                  key={entry.micro.id}
+                  name={label}
+                  rank={entry.rank}
+                  sizeShare={entry.micro.sizeShare}
+                  payback={entry.sim.paybackMonths}
+                  gm12={gm12Value}
+                  traits={entry.micro.traits}
+                  rationale={`Attractiveness ${(entry.micro.attractiveness * 100).toFixed(0)} • Conversion ${(entry.sim.conversionRate * 100).toFixed(1)}%`}
+                  selected={selectedMicroIds.includes(entry.micro.id)}
+                  highlight={topThreeIds.includes(entry.micro.id)}
+                  onSelect={(checked) => toggleSelection(entry.micro.id, checked)}
+                />
+              );
+            })}
           </div>
         </section>
         {recommended ? (
@@ -272,7 +332,11 @@ const SegmentStudio: React.FC = () => {
                       Offer bundling aligns with traits {recommended.micro.traits.slice(0, 3).join(', ')} and defends versus {recommended.segment.traits.slice(0, 1).join(', ') || 'competitors'}.
                     </li>
                     <li>
-                      Financial guardrails hold: payback {typeof recommended.sim.paybackMonths === 'number' ? `${recommended.sim.paybackMonths} mo` : recommended.sim.paybackMonths}, 12-mo GM {recommended.sim.gm12m ? `$${recommended.sim.gm12m.toLocaleString()}` : '$0'}, margin {recommended.sim.marginPct}%.
+                      Financial guardrails hold: payback
+                      {typeof recommended.sim.paybackMonths === 'number'
+                        ? ` ${recommended.sim.paybackMonths} mo`
+                        : ` ${recommended.sim.paybackMonths}`}
+                      , 12-mo GM {recommendedGmValue ? `$${recommendedGmValue.toLocaleString()}` : '$0'}, margin {recommended.sim.marginPct}%.
                     </li>
                   </ul>
                 )
@@ -281,7 +345,7 @@ const SegmentStudio: React.FC = () => {
             kpis={[
               {
                 label: 'Payback (mo)',
-                value: typeof recommended.sim.paybackMonths === 'number' ? recommended.sim.paybackMonths : recommended.sim.paybackMonths,
+                value: recommendedPaybackValue,
                 info: {
                   title: 'CAC Payback (months)',
                   description: 'Months until fully-loaded CAC is covered by cumulative contribution.'
@@ -289,7 +353,7 @@ const SegmentStudio: React.FC = () => {
               },
               {
                 label: '12-mo GM',
-                value: `$${recommended.sim.gm12m.toLocaleString()}`,
+                value: `$${recommendedGmValue.toLocaleString()}`,
                 info: {
                   title: '12-Month Incremental Gross Margin',
                   description: 'Gross margin over the first 12 months after servicing costs and device amortization.'
@@ -322,7 +386,7 @@ const SegmentStudio: React.FC = () => {
               const entry = subsegments.find((sub) => sub.micro.id === id);
               return {
                 id,
-                label: entry ? `${entry.segment.name} — ${entry.micro.name}` : id,
+                label: entry && hasSegment(entry) ? `${entry.segment.name} — ${entry.micro.name}` : entry ? entry.micro.name : id,
                 subtitle: entry ? `${(entry.micro.sizeShare * 100).toFixed(1)}% of cohort` : ''
               };
             })}
