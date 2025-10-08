@@ -15,8 +15,29 @@
     "isolatedModules": true,
     "noEmit": true,
     "jsx": "react-jsx",
-    "types": ["vite/client"]
+    "baseUrl": ".",
+    "typeRoots": ["./types", "./node_modules/@types"],
+    "paths": {
+      "vite/client": ["types/vite-client", "node_modules/vite/types/client"],
+      "vite": ["node_modules/vite/types", "types/stubs/vite"],
+      "@vitejs/plugin-react": ["node_modules/@vitejs/plugin-react/dist", "types/stubs/vite-plugin-react"],
+      "react": ["node_modules/@types/react/index", "types/stubs/react"],
+      "react/jsx-runtime": ["node_modules/@types/react/jsx-runtime", "types/stubs/react-jsx-runtime"],
+      "react-dom": ["node_modules/@types/react-dom/index", "types/stubs/react-dom"],
+      "react-dom/client": ["node_modules/@types/react-dom/client", "types/stubs/react-dom-client"],
+      "react-router-dom": ["node_modules/@types/react-router-dom/index", "types/stubs/react-router-dom"],
+      "recharts": ["types/stubs/recharts"],
+      "zustand": ["types/stubs/zustand"],
+      "zustand/middleware": ["types/stubs/zustand-middleware"],
+      "lucide-react": ["types/stubs/lucide-react"],
+      "clsx": ["types/stubs/clsx"]
+    }
   },
-  "include": ["src"],
-  "references": [{ "path": "./tsconfig.node.json" }]
+  "include": [
+    "src",
+    "types",
+    "vite.config.ts",
+    "postcss.config.cjs",
+    "tailwind.config.cjs"
+  ]
 }

@@ -422,7 +422,9 @@ const CampaignDesigner: React.FC = () => {
               <input
                 type="number"
                 value={campaign.budgetTotal}
-                onChange={(event) => updateCampaign({ budgetTotal: Number(event.target.value) })}
+                onChange={(event: React.ChangeEvent<HTMLInputElement>) =>
+                  updateCampaign({ budgetTotal: Number(event.target.value) })
+                }
                 className="mt-1 w-full rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-white focus:border-emerald-500 focus:outline-none"
               />
             </div>
@@ -435,7 +437,11 @@ const CampaignDesigner: React.FC = () => {
                 <input
                   type="number"
                   value={campaign.guardrails.cacCeiling ?? ''}
-                  onChange={(event) => updateCampaign({ guardrails: { ...campaign.guardrails, cacCeiling: Number(event.target.value) } })}
+                  onChange={(event: React.ChangeEvent<HTMLInputElement>) =>
+                    updateCampaign({
+                      guardrails: { ...campaign.guardrails, cacCeiling: Number(event.target.value) }
+                    })
+                  }
                   className="mt-1 w-full rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-white focus:border-emerald-500 focus:outline-none"
                 />
               </div>
@@ -447,7 +453,11 @@ const CampaignDesigner: React.FC = () => {
                 <input
                   type="number"
                   value={campaign.guardrails.paybackTarget ?? ''}
-                  onChange={(event) => updateCampaign({ guardrails: { ...campaign.guardrails, paybackTarget: Number(event.target.value) } })}
+                  onChange={(event: React.ChangeEvent<HTMLInputElement>) =>
+                    updateCampaign({
+                      guardrails: { ...campaign.guardrails, paybackTarget: Number(event.target.value) }
+                    })
+                  }
                   className="mt-1 w-full rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-white focus:border-emerald-500 focus:outline-none"
                 />
               </div>
@@ -464,7 +474,7 @@ const CampaignDesigner: React.FC = () => {
                 type="number"
                 step={0.01}
                 value={assumptions.grossMarginRate}
-                onChange={(event) => updateCampaign({})}
+                onChange={(event: React.ChangeEvent<HTMLInputElement>) => updateCampaign({})}
                 disabled
                 className="rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-white"
               />
@@ -590,11 +600,20 @@ const CampaignDesigner: React.FC = () => {
                     <XAxis dataKey="month" stroke="#64748b" tick={{ fill: '#94a3b8', fontSize: 12 }} />
                     <YAxis stroke="#64748b" tick={{ fill: '#94a3b8', fontSize: 12 }} />
                     <Tooltip
-                      content={({ active, payload }) => {
-                        if (!active || !payload?.length) return null;
+                      content={({
+                        active,
+                        payload
+                      }: {
+                        active?: boolean;
+                        payload?: Array<{ payload?: Record<string, unknown> }>;
+                      }) => {
+                        const entry = payload?.[0]?.payload as
+                          | { month: number; cumulativeContribution: number }
+                          | undefined;
+                        if (!active || !entry) return null;
                         return (
                           <div className="card border border-emerald-500/20 p-2 text-xs">
-                            Month {payload[0].payload.month}: {payload[0].payload.cumulativeContribution} per sub
+                            Month {entry.month}: {entry.cumulativeContribution} per sub
                           </div>
                         );
                       }}
@@ -674,7 +693,9 @@ const CampaignDesigner: React.FC = () => {
                         min={40}
                         max={90}
                         value={currentOffer.monthlyPrice}
-                        onChange={(event) => handleOfferChange(audienceId, { monthlyPrice: Number(event.target.value) })}
+                        onChange={(event: React.ChangeEvent<HTMLInputElement>) =>
+                          handleOfferChange(audienceId, { monthlyPrice: Number(event.target.value) })
+                        }
                       />
                     </label>
                     <label className="flex flex-col gap-1 text-xs uppercase tracking-wide text-slate-400">
@@ -687,7 +708,9 @@ const CampaignDesigner: React.FC = () => {
                         min={0}
                         max={12}
                         value={currentOffer.promoMonths}
-                        onChange={(event) => handleOfferChange(audienceId, { promoMonths: Number(event.target.value) })}
+                        onChange={(event: React.ChangeEvent<HTMLInputElement>) =>
+                          handleOfferChange(audienceId, { promoMonths: Number(event.target.value) })
+                        }
                       />
                     </label>
                     <label className="flex flex-col gap-1 text-xs uppercase tracking-wide text-slate-400">
@@ -700,7 +723,9 @@ const CampaignDesigner: React.FC = () => {
                         min={0}
                         max={40}
                         value={currentOffer.promoValue}
-                        onChange={(event) => handleOfferChange(audienceId, { promoValue: Number(event.target.value) })}
+                        onChange={(event: React.ChangeEvent<HTMLInputElement>) =>
+                          handleOfferChange(audienceId, { promoValue: Number(event.target.value) })
+                        }
                       />
                     </label>
                     <label className="flex flex-col gap-1 text-xs uppercase tracking-wide text-slate-400">
@@ -714,7 +739,9 @@ const CampaignDesigner: React.FC = () => {
                         max={400}
                         step={20}
                         value={currentOffer.deviceSubsidy}
-                        onChange={(event) => handleOfferChange(audienceId, { deviceSubsidy: Number(event.target.value) })}
+                        onChange={(event: React.ChangeEvent<HTMLInputElement>) =>
+                          handleOfferChange(audienceId, { deviceSubsidy: Number(event.target.value) })
+                        }
                       />
                     </label>
                   </div>
@@ -732,7 +759,9 @@ const CampaignDesigner: React.FC = () => {
                           max={1}
                           step={0.05}
                           value={mix[channel.id] ?? 0}
-                          onChange={(event) => handleChannelChange(audienceId, channel.id, Number(event.target.value))}
+                          onChange={(event: React.ChangeEvent<HTMLInputElement>) =>
+                            handleChannelChange(audienceId, channel.id, Number(event.target.value))
+                          }
                         />
                         <span className="w-10 text-right">{Math.round((mix[channel.id] ?? 0) * 100)}%</span>
                       </div>

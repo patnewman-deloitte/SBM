@@ -53,7 +53,7 @@ const App = () => {
               <NavLink
                 key={tab.path}
                 to={tab.path}
-                className={({ isActive }) =>
+                className={({ isActive }: { isActive: boolean }) =>
                   `rounded-full px-4 py-2 text-sm font-medium transition ${
                     isActive ? 'bg-emerald-500 text-slate-950 shadow-lg shadow-emerald-500/30' : 'bg-slate-900 text-slate-200 hover:bg-slate-800'
                   }`

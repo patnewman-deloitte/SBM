@@ -53,7 +53,7 @@ const SegmentTile = ({
             <input
               type="checkbox"
               checked={selected}
-              onChange={(event) => onSelect(event.target.checked)}
+              onChange={(event: React.ChangeEvent<HTMLInputElement>) => onSelect(event.target.checked)}
               className="h-4 w-4 rounded border border-emerald-500/40 bg-slate-900 text-emerald-500"
             />
             Select

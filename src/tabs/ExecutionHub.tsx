@@ -246,7 +246,9 @@ const ExecutionHub: React.FC = () => {
               <select
                 className="w-full rounded-lg border border-slate-700 bg-slate-950/70 px-3 py-2 text-sm"
                 value={statusFilter}
-                onChange={(event) => setStatusFilter(event.target.value as typeof statusFilter)}
+                onChange={(event: React.ChangeEvent<HTMLSelectElement>) =>
+                  setStatusFilter(event.target.value as typeof statusFilter)
+                }
               >
                 <option value="all">All</option>
                 <option value="Running">Running</option>
@@ -260,7 +262,9 @@ const ExecutionHub: React.FC = () => {
               <select
                 className="w-full rounded-lg border border-slate-700 bg-slate-950/70 px-3 py-2 text-sm"
                 value={agentFilter}
-                onChange={(event) => setAgentFilter(event.target.value as typeof agentFilter)}
+                onChange={(event: React.ChangeEvent<HTMLSelectElement>) =>
+                  setAgentFilter(event.target.value as typeof agentFilter)
+                }
               >
                 <option value="all">All</option>
                 <option value="Acquisition">Acquisition</option>
@@ -274,7 +278,9 @@ const ExecutionHub: React.FC = () => {
               <select
                 className="w-full rounded-lg border border-slate-700 bg-slate-950/70 px-3 py-2 text-sm"
                 value={channelFilter}
-                onChange={(event) => setChannelFilter(event.target.value as typeof channelFilter)}
+                onChange={(event: React.ChangeEvent<HTMLSelectElement>) =>
+                  setChannelFilter(event.target.value as typeof channelFilter)
+                }
               >
                 <option value="all">All</option>
                 {channelKeys.map((key) => (
@@ -345,7 +351,7 @@ const ExecutionHub: React.FC = () => {
                     <td className="px-4 py-3 text-right">
                       <button
                         className="rounded-full border border-emerald-500/60 px-3 py-1 text-xs font-semibold text-emerald-200"
-                        onClick={(event) => {
+                        onClick={(event: React.MouseEvent<HTMLButtonElement>) => {
                           event.stopPropagation();
                           setSelectedId(campaign.id);
                         }}
@@ -432,7 +438,7 @@ const ExecutionHub: React.FC = () => {
                   type="checkbox"
                   className="h-4 w-4 rounded border border-slate-600 bg-slate-900"
                   checked={autoOptimize[selectedCampaign.id] ?? false}
-                  onChange={(event) => {
+                  onChange={(event: React.ChangeEvent<HTMLInputElement>) => {
                     setAutoOptimize(selectedCampaign.id, event.target.checked);
                     pushToast({ description: event.target.checked ? 'Auto-optimize enabled.' : 'Auto-optimize disabled.', variant: 'default' });
                   }}
@@ -458,7 +464,9 @@ const ExecutionHub: React.FC = () => {
                           max={60}
                           step={1}
                           value={channelDraft[key]}
-                          onChange={(event) => handleChannelChange(key, Number(event.target.value))}
+                          onChange={(event: React.ChangeEvent<HTMLInputElement>) =>
+                            handleChannelChange(key, Number(event.target.value))
+                          }
                           className="w-full accent-emerald-400"
                           aria-label={`${key} allocation`}
                         />
@@ -502,7 +510,9 @@ const ExecutionHub: React.FC = () => {
                     <input
                       type="number"
                       value={offerDraft.price}
-                      onChange={(event) => setOfferDraft((prev) => ({ ...prev, price: Number(event.target.value) }))}
+                      onChange={(event: React.ChangeEvent<HTMLInputElement>) =>
+                        setOfferDraft((prev) => ({ ...prev, price: Number(event.target.value) }))
+                      }
                       className="w-full rounded-lg border border-slate-700 bg-slate-950/70 px-3 py-2"
                     />
                   </label>
@@ -511,7 +521,9 @@ const ExecutionHub: React.FC = () => {
                     <input
                       type="number"
                       value={offerDraft.promoMonths}
-                      onChange={(event) => setOfferDraft((prev) => ({ ...prev, promoMonths: Number(event.target.value) }))}
+                      onChange={(event: React.ChangeEvent<HTMLInputElement>) =>
+                        setOfferDraft((prev) => ({ ...prev, promoMonths: Number(event.target.value) }))
+                      }
                       className="w-full rounded-lg border border-slate-700 bg-slate-950/70 px-3 py-2"
                     />
                   </label>
@@ -520,7 +532,9 @@ const ExecutionHub: React.FC = () => {
                     <input
                       type="number"
                       value={offerDraft.promoValue}
-                      onChange={(event) => setOfferDraft((prev) => ({ ...prev, promoValue: Number(event.target.value) }))}
+                      onChange={(event: React.ChangeEvent<HTMLInputElement>) =>
+                        setOfferDraft((prev) => ({ ...prev, promoValue: Number(event.target.value) }))
+                      }
                       className="w-full rounded-lg border border-slate-700 bg-slate-950/70 px-3 py-2"
                     />
                   </label>
@@ -529,7 +543,9 @@ const ExecutionHub: React.FC = () => {
                     <input
                       type="number"
                       value={offerDraft.deviceSubsidy}
-                      onChange={(event) => setOfferDraft((prev) => ({ ...prev, deviceSubsidy: Number(event.target.value) }))}
+                      onChange={(event: React.ChangeEvent<HTMLInputElement>) =>
+                        setOfferDraft((prev) => ({ ...prev, deviceSubsidy: Number(event.target.value) }))
+                      }
                       className="w-full rounded-lg border border-slate-700 bg-slate-950/70 px-3 py-2"
                     />
                   </label>

@@ -415,7 +415,7 @@ export const AppStoreProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     setState((prev) => {
       const campaigns = prev.campaigns.map((campaign) => {
         if (campaign.id !== id) return campaign;
-        const status = campaign.status === 'Running' ? 'Paused' : 'Running';
+        const status: Campaign['status'] = campaign.status === 'Running' ? 'Paused' : 'Running';
         return { ...campaign, status, lastUpdate: Date.now() };
       });
       return { ...prev, campaigns };

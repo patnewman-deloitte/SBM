@@ -34,7 +34,7 @@ const Info: React.FC<InfoProps> = ({ title, body, side = 'top' }) => {
     <div className="relative inline-flex">
       <button
         ref={triggerRef}
-        onClick={(event) => {
+        onClick={(event: React.MouseEvent<HTMLButtonElement>) => {
           event.stopPropagation();
           setOpen((prev) => !prev);
         }}

@@ -44,14 +44,20 @@ const BubbleChart = ({ segments, data, onSelect }: Props) => {
             type="number"
             dataKey="size"
             name="Cohort size"
-            tickFormatter={(val) => `${(val / 1000).toFixed(0)}k`}
+            tickFormatter={(val: number) => `${(val / 1000).toFixed(0)}k`}
             tick={{ fill: '#94a3b8', fontSize: 12 }}
             label={{ value: 'Cohort size', angle: -90, position: 'insideLeft', fill: '#94a3b8' }}
           />
           <ZAxis dataKey="netAdds" range={[60, 400]} name="Net Adds" />
           <Tooltip
             cursor={{ stroke: '#22d3ee', strokeWidth: 1 }}
-            content={({ active, payload }) => {
+            content={({
+              active,
+              payload
+            }: {
+              active?: boolean;
+              payload?: Array<{ payload?: unknown }>;
+            }) => {
               if (!active || !payload?.length) return null;
               const point = payload[0].payload as BubblePoint;
               const segment = segments.find((s) => s.id === point.id);
@@ -69,9 +75,9 @@ const BubbleChart = ({ segments, data, onSelect }: Props) => {
             name="Cohorts"
             data={data.map((point, idx) => ({ ...point, fill: colors[idx % colors.length] }))}
             shape={renderNode}
-            onClick={(node) => {
-              if (node && (node as any).id) {
-                onSelect((node as any).id as string);
+            onClick={(node: unknown) => {
+              if (node && (node as { id?: string }).id) {
+                onSelect((node as { id?: string }).id as string);
               }
             }}
           />

@@ -258,6 +258,7 @@ const MarketRadar: React.FC = () => {
       }));
       const audiences = normalized.map((micro) => ({
         micro,
+        segment,
         segmentSize: segment.size,
         offer: offers[0],
         channelMix: defaultChannelMix,
@@ -481,7 +482,7 @@ const MarketRadar: React.FC = () => {
             <div className="mt-2 flex items-center gap-2">
               <input
                 value={command}
-                onChange={(event) => setCommand(event.target.value)}
+                onChange={(event: React.ChangeEvent<HTMLInputElement>) => setCommand(event.target.value)}
                 placeholder="ex: urban cohorts over 200k size"
                 className="flex-1 rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-white focus:border-emerald-500 focus:outline-none"
               />
@@ -517,7 +518,9 @@ const MarketRadar: React.FC = () => {
                       {field.type === 'select' ? (
                         <select
                           value={value}
-                          onChange={(event) => setFilters({ [field.id]: event.target.value.toLowerCase() })}
+                          onChange={(event: React.ChangeEvent<HTMLSelectElement>) =>
+                            setFilters({ [field.id]: event.target.value.toLowerCase() })
+                          }
                           className="w-full rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-white focus:border-emerald-500 focus:outline-none"
                         >
                           {field.options?.map((option) => (
@@ -531,7 +534,9 @@ const MarketRadar: React.FC = () => {
                           type="number"
                           min={0}
                           value={activeFilters[field.id] ?? ''}
-                          onChange={(event) => setFilters({ [field.id]: event.target.value ? Number(event.target.value) : undefined })}
+                          onChange={(event: React.ChangeEvent<HTMLInputElement>) =>
+                            setFilters({ [field.id]: event.target.value ? Number(event.target.value) : undefined })
+                          }
                           className="w-full rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-white focus:border-emerald-500 focus:outline-none"
                           placeholder="Size in households"
                         />
@@ -539,7 +544,9 @@ const MarketRadar: React.FC = () => {
                         <input
                           type="text"
                           value={activeFilters[field.id] ?? ''}
-                          onChange={(event) => setFilters({ [field.id]: event.target.value })}
+                          onChange={(event: React.ChangeEvent<HTMLInputElement>) =>
+                            setFilters({ [field.id]: event.target.value })
+                          }
                           className="w-full rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-white focus:border-emerald-500 focus:outline-none"
                           placeholder={field.placeholder}
                         />

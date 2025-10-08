@@ -1,0 +1,30 @@
+declare module 'recharts' {
+  export type ChartComponent = (props: any) => any;
+  export const ResponsiveContainer: ChartComponent;
+  export const LineChart: ChartComponent;
+  export const Line: ChartComponent;
+  export const Tooltip: ChartComponent;
+  export const XAxis: ChartComponent;
+  export const YAxis: ChartComponent;
+  export const ZAxis: ChartComponent;
+  export const CartesianGrid: ChartComponent;
+  export const AreaChart: ChartComponent;
+  export const Area: ChartComponent;
+  export const BarChart: ChartComponent;
+  export const Bar: ChartComponent;
+  export const Legend: ChartComponent;
+  export const ReferenceLine: ChartComponent;
+  export const ComposedChart: ChartComponent;
+  export const ScatterChart: ChartComponent;
+  export const Scatter: ChartComponent;
+  export const PieChart: ChartComponent;
+  export const Pie: ChartComponent;
+  export const Cell: ChartComponent;
+  export const LabelList: ChartComponent;
+  export const Label: ChartComponent;
+  export const RadialBarChart: ChartComponent;
+  export const RadialBar: ChartComponent;
+  export const PolarAngleAxis: ChartComponent;
+  export const PolarRadiusAxis: ChartComponent;
+  export const PolarGrid: ChartComponent;
+}

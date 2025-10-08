@@ -37,7 +37,7 @@ const InfoPopover: React.FC<InfoProps> = ({ title, description, primarySource, p
     <div className="relative inline-flex">
       <button
         ref={triggerRef}
-        onClick={(event) => {
+        onClick={(event: React.MouseEvent<HTMLButtonElement>) => {
           event.stopPropagation();
           toggle();
         }}

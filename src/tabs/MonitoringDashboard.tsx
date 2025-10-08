@@ -209,7 +209,9 @@ const MonitoringDashboard: React.FC = () => {
           <select
             className="rounded-full border border-slate-700 bg-slate-900/80 px-4 py-2 text-sm text-slate-200"
             value={selectedCampaignId}
-            onChange={(event) => setSelectedCampaignId(event.target.value as typeof selectedCampaignId)}
+            onChange={(event: React.ChangeEvent<HTMLSelectElement>) =>
+              setSelectedCampaignId(event.target.value as typeof selectedCampaignId)
+            }
           >
             <option value="all">All campaigns</option>
             {campaigns.map((campaign) => (
@@ -221,7 +223,9 @@ const MonitoringDashboard: React.FC = () => {
           <select
             className="rounded-full border border-slate-700 bg-slate-900/80 px-4 py-2 text-sm text-slate-200"
             value={range}
-            onChange={(event) => setRange(Number(event.target.value) as typeof range)}
+            onChange={(event: React.ChangeEvent<HTMLSelectElement>) =>
+              setRange(Number(event.target.value) as typeof range)
+            }
           >
             <option value={30}>Last 30 days</option>
             <option value={60}>Last 60 days</option>
