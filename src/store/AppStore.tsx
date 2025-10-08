@@ -353,7 +353,7 @@ export const AppStoreProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       lastUpdate: now
     };
 
-    setState((prev) => {
+    setState((prev): AppStoreState => {
       const points: TelemetryPoint[] = [];
       let prevPoint: TelemetryPoint | undefined;
       for (let i = 0; i < 8; i += 1) {
@@ -394,7 +394,7 @@ export const AppStoreProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   }, []);
 
   const updateCampaign = React.useCallback((id: string, patch: Partial<Campaign>) => {
-    setState((prev) => {
+    setState((prev): AppStoreState => {
       const allowedStatuses: Campaign['status'][] = ['Planned', 'Running', 'Paused', 'Completed'];
       const campaigns = prev.campaigns.map((campaign) => {
         if (campaign.id !== id) return campaign;
@@ -412,7 +412,7 @@ export const AppStoreProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   }, []);
 
   const toggleStatus = React.useCallback((id: string) => {
-    setState((prev) => {
+    setState((prev): AppStoreState => {
       const campaigns = prev.campaigns.map((campaign) => {
         if (campaign.id !== id) return campaign;
         const status: Campaign['status'] = campaign.status === 'Running' ? 'Paused' : 'Running';
@@ -444,7 +444,7 @@ export const AppStoreProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   const tuneCampaign = React.useCallback(
     (id: string, patch: { channels?: Partial<Record<ChannelKey, number>>; offer?: Partial<Campaign['offer']> }) => {
       let updatedCampaign: Campaign | undefined;
-      setState((prev) => {
+      setState((prev): AppStoreState => {
         const campaigns = prev.campaigns.map((campaign) => {
           if (campaign.id !== id) return campaign;
           updatedCampaign = applyTune(campaign, patch);
@@ -471,7 +471,7 @@ export const AppStoreProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   );
 
   const setAutoOptimize = React.useCallback((id: string, value: boolean) => {
-    setState((prev) => ({
+    setState((prev): AppStoreState => ({
       ...prev,
       autoOptimize: { ...prev.autoOptimize, [id]: value }
     }));
@@ -479,7 +479,7 @@ export const AppStoreProvider: React.FC<{ children: React.ReactNode }> = ({ chil
 
   const logAction = React.useCallback(
     (campaignId: string, action: Omit<AgentAction, 'id' | 'campaignId' | 'timestamp'>) => {
-      setState((prev) => {
+      setState((prev): AppStoreState => {
         const entry: AgentAction = {
           ...action,
           id: makeId(),
@@ -519,7 +519,7 @@ export const AppStoreProvider: React.FC<{ children: React.ReactNode }> = ({ chil
 
   React.useEffect(() => {
     const interval = window.setInterval(() => {
-      setState((prev) => {
+      setState((prev): AppStoreState => {
         let mutated = false;
         const streams: Monitoring['streams'] = { ...prev.monitoring.streams };
         const campaigns = prev.campaigns.map((campaign) => {
@@ -545,7 +545,7 @@ export const AppStoreProvider: React.FC<{ children: React.ReactNode }> = ({ chil
 
   React.useEffect(() => {
     const interval = window.setInterval(() => {
-      setState((prev) => {
+      setState((prev): AppStoreState => {
         let mutated = false;
         const streams: Monitoring['streams'] = { ...prev.monitoring.streams };
         const campaigns = prev.campaigns.map((campaign) => {

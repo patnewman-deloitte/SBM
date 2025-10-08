@@ -8,7 +8,7 @@ import RightRail from '../../components/RightRail';
 import SegmentTile from '../../components/SegmentTile';
 import SelectionTray from '../../components/SelectionTray';
 import { parseIntent } from '../../lib/intentParser';
-import { simulateCampaign } from '../../sim/tinySim';
+import { simulateCampaign, AudienceSimInput } from '../../sim/tinySim';
 import { useGlobalStore } from '../../store/global';
 
 const geoTree: GeoNode[] = [
@@ -251,20 +251,38 @@ const MarketRadar: React.FC = () => {
       const segment = segments.find((s) => s.id === segmentId);
       if (!segment) return { payback: 9, gm12: 240, netAdds: 1200, opportunity: 55, conversion: 0.08 };
       const microSegments = microSegmentsByParent[segmentId] ?? [];
+      const defaultOffer = offers[0];
+      if (!defaultOffer) {
+        return { payback: 9, gm12: 240, netAdds: 1200, opportunity: 55, conversion: 0.08 };
+      }
       const totalWeight = microSegments.reduce((sum, micro) => sum + micro.sizeShare, 0) || 1;
-      const normalized = microSegments.map((micro) => ({
-        ...micro,
-        sizeShare: micro.sizeShare / totalWeight
-      }));
-      const audiences = normalized.map((micro) => ({
-        micro,
-        segment,
-        segmentSize: segment.size,
-        offer: offers[0],
-        channelMix: defaultChannelMix,
-        assumptions,
-        channels
-      }));
+      const audiences = microSegments.flatMap<AudienceSimInput>((micro) => {
+        const parentSegment =
+          segments.find((s) => s.id === micro.parentSegmentId || s.id === (micro as { parentId?: string }).parentId) ??
+          segment;
+        if (!parentSegment) {
+          return [];
+        }
+        const normalisedMicro = {
+          ...micro,
+          sizeShare: micro.sizeShare / totalWeight
+        };
+        return [
+          {
+            micro: normalisedMicro,
+            segment: parentSegment,
+            segmentSize: parentSegment.size ?? 0,
+            offer: defaultOffer,
+            channelMix: defaultChannelMix,
+            assumptions,
+            channels
+          }
+        ];
+      });
+      if (!audiences.length) {
+        return { payback: 9, gm12: 240, netAdds: 1200, opportunity: 55, conversion: 0.08 };
+      }
+      const normalized = audiences.map((audience) => audience.micro);
       const { blended } = simulateCampaign({ audiences });
       return {
         payback: blended.paybackMonths,
