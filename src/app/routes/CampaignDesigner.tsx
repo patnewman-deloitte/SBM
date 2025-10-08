@@ -54,28 +54,31 @@ const CampaignDesigner: React.FC = () => {
     return map;
   }, [microSegmentsByParent]);
 
-  const audiences = React.useMemo<AudienceSimInput[]>(
-    () =>
-      campaign.audienceIds.flatMap((audienceId) => {
-        const entry = microMap.get(audienceId);
-        if (!entry) return [];
-        const segment = segments.find((seg) => seg.id === entry.parentId);
-        if (!segment) return [];
-        const mix = campaign.channelMixByAudience[audienceId] ?? {};
-        return [
-          {
-            micro: entry.data,
-            segment,
-            segmentSize: segment.size ?? 0,
-            offer: campaign.offerByAudience[audienceId] ?? offers[0],
-            channelMix: mix,
-            assumptions,
-            channels
-          }
-        ];
-      }),
-    [assumptions, campaign, channels, microMap, offers, segments]
-  );
+  const audiences = React.useMemo<AudienceSimInput[]>(() => {
+    const fallbackOffer = offers[0];
+    if (!fallbackOffer) {
+      return [];
+    }
+    return campaign.audienceIds.flatMap((audienceId) => {
+      const entry = microMap.get(audienceId);
+      if (!entry) return [];
+      const segment = segments.find((seg) => seg.id === entry.parentId);
+      if (!segment) return [];
+      const mix = campaign.channelMixByAudience[audienceId] ?? {};
+      const offer = campaign.offerByAudience[audienceId] ?? fallbackOffer;
+      return [
+        {
+          micro: entry.data,
+          segment,
+          segmentSize: segment.size ?? 0,
+          offer,
+          channelMix: mix,
+          assumptions,
+          channels
+        }
+      ];
+    });
+  }, [assumptions, campaign, channels, microMap, offers, segments]);
 
   const simResults = React.useMemo(() => {
     if (!audiences.length) {
