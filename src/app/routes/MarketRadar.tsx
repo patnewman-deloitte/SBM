@@ -95,128 +95,278 @@ const geoTree: GeoNode[] = [
 
 type ViewMode = 'market' | 'map' | 'compare';
 
-type FilterField = {
-  id: string;
-  label: string;
-  type: 'select' | 'range' | 'text';
-  options?: string[];
-  placeholder?: string;
-  info: { title: string; description: string; primarySource?: string };
+type LocationContext = {
+  geoLevel: 'National' | 'Region' | 'State' | 'ZIP';
+  areaType: 'Urban' | 'Suburban' | 'Rural' | 'Any';
+  detail?: string;
 };
 
-type FilterGroup = {
-  id: string;
-  label: string;
-  fields: FilterField[];
-  source?: string;
+export type Filters = {
+  peoplePlace: {
+    locationContext: LocationContext;
+    incomeLevel: [number, number];
+    hhSizeLines: { hhSize: number | 'Any'; lines: number | 'Any' };
+    device5G: { deviceTypes: string[]; fiveGReady: boolean | 'Any' };
+    tenurePay: { tenureMonths: [number, number]; payReliability: number | 'Any' };
+  };
+  motivationMindset: {
+    priceSensitivity: number;
+    speedCoverageImportance: number;
+    valueForMoney: number;
+    switchLikelihood2mo: number;
+    topFrustrations: string[];
+  };
+  behaviorsInterests: {
+    socialTrendAffinity: number;
+    topSpendOutsideConn: string[];
+    avgConnSpend: [number, number];
+    streamingGamingUsage: number;
+    bundlePropensity: string[];
+  };
+  externalSwitchTriggers: {
+    recentMove: 'Yes' | 'No' | 'Unknown' | 'Any';
+    newServicesAvailable: string[];
+    competitorPromoLevel: 'None' | 'Minor' | 'Significant' | 'Any';
+    eventWindow: string[];
+    localDisruption: string[];
+  };
+  competitiveEnvironment: {
+    currentPreviousProvider: string[];
+    comparingTo: string | 'Any';
+    rivalBeatsUsOn: string[];
+    winRateVsRival: [number, number];
+    rivalServiceAtAddress: 'Yes' | 'No' | 'Unknown' | 'Any';
+  };
 };
 
-const filterGroups: FilterGroup[] = [
-  {
-    id: 'people-place',
-    label: 'People & Place',
-    source: 'Converge CONSUMER / HundredX / Recon / CSP 1P (synthetic)',
-    fields: [
-      {
-        id: 'region',
-        label: 'Region focus',
-        type: 'select',
-        options: ['National', 'Urban', 'Suburban', 'Rural', 'West', 'South', 'Northeast'],
-        info: {
-          title: 'Region filter',
-          description: 'Focus the cohort list by geography or environment-level markers.',
-          primarySource: 'Converge CONSUMER (synthetic)'
-        }
-      },
-      {
-        id: 'minSize',
-        label: 'Minimum cohort size',
-        type: 'range',
-        info: {
-          title: 'Cohort size threshold',
-          description: 'Use to limit results to larger targetable audiences.',
-          primarySource: 'Synth Cohort Econ'
-        }
-      }
-    ]
+const FILTER_STORAGE_KEY = 'sbm.mr.filters';
+const FILTER_SET_STORAGE_KEY = 'sbm.mr.savedFilters';
+
+const deviceTypeOptions = ['iOS', 'Android', 'Feature'];
+const frustrationOptions = ['Price', 'Coverage', 'Support wait time', 'Billing', 'Device', 'Other'];
+const spendSectorOptions = ['Grocery', 'Fuel', 'Electronics', 'Streaming', 'Quick-serve', 'Big Box', 'Travel', 'Wellness'];
+const bundleOptions = ['Mobile+Internet+TV', 'Mobile+Internet', 'Internet+TV', 'Accessories'];
+const triggerServices = ['Fiber', 'FWA'];
+const eventWindows = ['Back-to-school', 'Holidays', 'Device launch'];
+const disruptionEvents = ['Outage', 'Store opening', 'Network upgrade'];
+const providerOptions = ['AT&T', 'Verizon', 'T-Mobile', 'Cable MVNOs', 'Regional carriers'];
+const rivalStrengths = ['Price', 'Coverage', 'Speed', 'Perks'];
+
+const createDefaultFilters = (): Filters => ({
+  peoplePlace: {
+    locationContext: { geoLevel: 'National', areaType: 'Any' },
+    incomeLevel: [0, 0],
+    hhSizeLines: { hhSize: 'Any', lines: 'Any' },
+    device5G: { deviceTypes: [], fiveGReady: 'Any' },
+    tenurePay: { tenureMonths: [0, 0], payReliability: 'Any' }
   },
-  {
-    id: 'motivation',
-    label: 'Motivation & Mindset',
-    source: 'Recon Qual Synth / Sentiment Signals',
-    fields: [
-      {
-        id: 'priceSensitivity',
-        label: 'Price sensitivity',
-        type: 'select',
-        options: ['Any', 'Low', 'Medium', 'High'],
-        info: {
-          title: 'Price Sensitivity',
-          description: 'Relative importance of price versus other triggers for this cohort.',
-          primarySource: 'Recon Sentiment (synthetic)'
-        }
-      },
-      {
-        id: 'switchLikelihood',
-        label: 'Likelihood to switch',
-        type: 'select',
-        options: ['Any', 'Elevated', 'High'],
-        info: {
-          title: 'Switch likelihood',
-          description: 'Qualitative assessment of how likely members are to change providers.',
-          primarySource: 'Churn Propensity Model (synthetic)'
-        }
-      }
-    ]
+  motivationMindset: {
+    priceSensitivity: 50,
+    speedCoverageImportance: 50,
+    valueForMoney: 50,
+    switchLikelihood2mo: 50,
+    topFrustrations: []
   },
-  {
-    id: 'behaviors',
-    label: 'Behaviors & Interests',
-    source: 'App Usage Graph / OTT Panels',
-    fields: [
-      {
-        id: 'streaming',
-        label: 'Streaming usage',
-        type: 'select',
-        options: ['Any', 'Light', 'Moderate', 'Heavy'],
-        info: {
-          title: 'Streaming usage',
-          description: 'Levels of video/OTT consumption and device reliance.',
-          primarySource: 'OTT Behavioral Panel (synthetic)'
-        }
-      },
-      {
-        id: 'bundlePropensity',
-        label: 'Bundle propensity',
-        type: 'select',
-        options: ['Any', 'Moderate', 'High'],
-        info: {
-          title: 'Bundle propensity',
-          description: 'Willingness to add adjacent services when incented.',
-          primarySource: 'Cross-sell Model (synthetic)'
-        }
-      }
-    ]
+  behaviorsInterests: {
+    socialTrendAffinity: 50,
+    topSpendOutsideConn: [],
+    avgConnSpend: [0, 0],
+    streamingGamingUsage: 50,
+    bundlePropensity: []
   },
-  {
-    id: 'channels',
-    label: 'Channels & Reachability',
-    source: 'Engagement Graph / Campaign 1P',
-    fields: [
-      {
-        id: 'preferredChannel',
-        label: 'Preferred channel',
-        type: 'select',
-        options: ['Any', 'Search', 'Social', 'Retail', 'Email'],
-        info: {
-          title: 'Preferred channel',
-          description: 'Channel most likely to capture attention for this cohort.',
-          primarySource: 'Engagement Graph (synthetic)'
-        }
-      }
-    ]
+  externalSwitchTriggers: {
+    recentMove: 'Any',
+    newServicesAvailable: [],
+    competitorPromoLevel: 'Any',
+    eventWindow: [],
+    localDisruption: []
+  },
+  competitiveEnvironment: {
+    currentPreviousProvider: [],
+    comparingTo: 'Any',
+    rivalBeatsUsOn: [],
+    winRateVsRival: [0, 0],
+    rivalServiceAtAddress: 'Any'
   }
-];
+});
+
+const mergeFilters = (base: Filters, saved?: Partial<Filters>): Filters => {
+  if (!saved) return base;
+  return {
+    peoplePlace: {
+      locationContext: { ...base.peoplePlace.locationContext, ...saved.peoplePlace?.locationContext },
+      incomeLevel: saved.peoplePlace?.incomeLevel ?? base.peoplePlace.incomeLevel,
+      hhSizeLines: { ...base.peoplePlace.hhSizeLines, ...saved.peoplePlace?.hhSizeLines },
+      device5G: { ...base.peoplePlace.device5G, ...saved.peoplePlace?.device5G },
+      tenurePay: { ...base.peoplePlace.tenurePay, ...saved.peoplePlace?.tenurePay }
+    },
+    motivationMindset: {
+      priceSensitivity: saved.motivationMindset?.priceSensitivity ?? base.motivationMindset.priceSensitivity,
+      speedCoverageImportance: saved.motivationMindset?.speedCoverageImportance ?? base.motivationMindset.speedCoverageImportance,
+      valueForMoney: saved.motivationMindset?.valueForMoney ?? base.motivationMindset.valueForMoney,
+      switchLikelihood2mo: saved.motivationMindset?.switchLikelihood2mo ?? base.motivationMindset.switchLikelihood2mo,
+      topFrustrations: saved.motivationMindset?.topFrustrations ?? base.motivationMindset.topFrustrations
+    },
+    behaviorsInterests: {
+      socialTrendAffinity: saved.behaviorsInterests?.socialTrendAffinity ?? base.behaviorsInterests.socialTrendAffinity,
+      topSpendOutsideConn: saved.behaviorsInterests?.topSpendOutsideConn ?? base.behaviorsInterests.topSpendOutsideConn,
+      avgConnSpend: saved.behaviorsInterests?.avgConnSpend ?? base.behaviorsInterests.avgConnSpend,
+      streamingGamingUsage: saved.behaviorsInterests?.streamingGamingUsage ?? base.behaviorsInterests.streamingGamingUsage,
+      bundlePropensity: saved.behaviorsInterests?.bundlePropensity ?? base.behaviorsInterests.bundlePropensity
+    },
+    externalSwitchTriggers: {
+      recentMove: saved.externalSwitchTriggers?.recentMove ?? base.externalSwitchTriggers.recentMove,
+      newServicesAvailable: saved.externalSwitchTriggers?.newServicesAvailable ?? base.externalSwitchTriggers.newServicesAvailable,
+      competitorPromoLevel: saved.externalSwitchTriggers?.competitorPromoLevel ?? base.externalSwitchTriggers.competitorPromoLevel,
+      eventWindow: saved.externalSwitchTriggers?.eventWindow ?? base.externalSwitchTriggers.eventWindow,
+      localDisruption: saved.externalSwitchTriggers?.localDisruption ?? base.externalSwitchTriggers.localDisruption
+    },
+    competitiveEnvironment: {
+      currentPreviousProvider:
+        saved.competitiveEnvironment?.currentPreviousProvider ?? base.competitiveEnvironment.currentPreviousProvider,
+      comparingTo: saved.competitiveEnvironment?.comparingTo ?? base.competitiveEnvironment.comparingTo,
+      rivalBeatsUsOn: saved.competitiveEnvironment?.rivalBeatsUsOn ?? base.competitiveEnvironment.rivalBeatsUsOn,
+      winRateVsRival: saved.competitiveEnvironment?.winRateVsRival ?? base.competitiveEnvironment.winRateVsRival,
+      rivalServiceAtAddress:
+        saved.competitiveEnvironment?.rivalServiceAtAddress ?? base.competitiveEnvironment.rivalServiceAtAddress
+    }
+  };
+};
+
+const cloneFilters = (source: Filters): Filters => JSON.parse(JSON.stringify(source)) as Filters;
+
+const formatRange = (range: [number, number]) =>
+  range[0] === 0 && range[1] === 0 ? 'any' : `${range[0]}-${range[1]}`;
+
+const formatArray = (value: string[]) => (value.length ? value.join(',') : 'any');
+
+export const buildQuery = (filters: Filters) => ({
+  'peoplePlace.locationContext.geoLevel': filters.peoplePlace.locationContext.geoLevel,
+  'peoplePlace.locationContext.areaType': filters.peoplePlace.locationContext.areaType,
+  'peoplePlace.locationContext.detail': filters.peoplePlace.locationContext.detail ?? 'Any',
+  'peoplePlace.incomeLevel': formatRange(filters.peoplePlace.incomeLevel),
+  'peoplePlace.hhSize': String(filters.peoplePlace.hhSizeLines.hhSize ?? 'Any'),
+  'peoplePlace.lines': String(filters.peoplePlace.hhSizeLines.lines ?? 'Any'),
+  'peoplePlace.deviceTypes': formatArray(filters.peoplePlace.device5G.deviceTypes),
+  'peoplePlace.fiveGReady': filters.peoplePlace.device5G.fiveGReady === 'Any' ? 'Any' : filters.peoplePlace.device5G.fiveGReady,
+  'peoplePlace.tenure': formatRange(filters.peoplePlace.tenurePay.tenureMonths),
+  'peoplePlace.payReliability': String(filters.peoplePlace.tenurePay.payReliability ?? 'Any'),
+  'motivationMindset.priceSensitivity': filters.motivationMindset.priceSensitivity === 50 ? 'any' : filters.motivationMindset.priceSensitivity,
+  'motivationMindset.speedCoverageImportance':
+    filters.motivationMindset.speedCoverageImportance === 50 ? 'any' : filters.motivationMindset.speedCoverageImportance,
+  'motivationMindset.valueForMoney': filters.motivationMindset.valueForMoney === 50 ? 'any' : filters.motivationMindset.valueForMoney,
+  'motivationMindset.switchLikelihood2mo':
+    filters.motivationMindset.switchLikelihood2mo === 50 ? 'any' : filters.motivationMindset.switchLikelihood2mo,
+  'motivationMindset.topFrustrations': formatArray(filters.motivationMindset.topFrustrations),
+  'behaviorsInterests.socialTrendAffinity':
+    filters.behaviorsInterests.socialTrendAffinity === 50 ? 'any' : filters.behaviorsInterests.socialTrendAffinity,
+  'behaviorsInterests.topSpendOutsideConn': formatArray(filters.behaviorsInterests.topSpendOutsideConn),
+  'behaviorsInterests.avgConnSpend': formatRange(filters.behaviorsInterests.avgConnSpend),
+  'behaviorsInterests.streamingGamingUsage':
+    filters.behaviorsInterests.streamingGamingUsage === 50 ? 'any' : filters.behaviorsInterests.streamingGamingUsage,
+  'behaviorsInterests.bundlePropensity': formatArray(filters.behaviorsInterests.bundlePropensity),
+  'externalSwitchTriggers.recentMove': filters.externalSwitchTriggers.recentMove,
+  'externalSwitchTriggers.newServicesAvailable': formatArray(filters.externalSwitchTriggers.newServicesAvailable),
+  'externalSwitchTriggers.competitorPromoLevel': filters.externalSwitchTriggers.competitorPromoLevel,
+  'externalSwitchTriggers.eventWindow': formatArray(filters.externalSwitchTriggers.eventWindow),
+  'externalSwitchTriggers.localDisruption': formatArray(filters.externalSwitchTriggers.localDisruption),
+  'competitiveEnvironment.currentPreviousProvider': formatArray(filters.competitiveEnvironment.currentPreviousProvider),
+  'competitiveEnvironment.comparingTo': filters.competitiveEnvironment.comparingTo,
+  'competitiveEnvironment.rivalBeatsUsOn': formatArray(filters.competitiveEnvironment.rivalBeatsUsOn),
+  'competitiveEnvironment.winRateVsRival': formatRange(filters.competitiveEnvironment.winRateVsRival),
+  'competitiveEnvironment.rivalServiceAtAddress': filters.competitiveEnvironment.rivalServiceAtAddress
+});
+
+const InfoTooltip: React.FC<{ text: string }> = ({ text }) => {
+  const [open, setOpen] = React.useState(false);
+  const id = React.useId();
+
+  return (
+    <span className="relative inline-flex">
+      <button
+        type="button"
+        aria-describedby={id}
+        onMouseEnter={() => setOpen(true)}
+        onMouseLeave={() => setOpen(false)}
+        onFocus={() => setOpen(true)}
+        onBlur={() => setOpen(false)}
+        className="inline-flex h-5 w-5 items-center justify-center rounded-full border border-emerald-500/50 bg-emerald-500/10 text-[11px] font-semibold text-emerald-200 transition hover:bg-emerald-500/20"
+      >
+        ⓘ
+      </button>
+      <span
+        id={id}
+        role="tooltip"
+        className={`pointer-events-none absolute left-1/2 top-full z-30 mt-1 w-48 -translate-x-1/2 rounded-md border border-emerald-500/30 bg-slate-900/95 px-2 py-1 text-[11px] leading-relaxed text-slate-200 shadow-lg shadow-emerald-500/10 transition-opacity ${open ? 'opacity-100' : 'opacity-0'}`}
+      >
+        {text}
+      </span>
+    </span>
+  );
+};
+
+type FilterFieldProps = {
+  label: string;
+  tooltip: string;
+  dataTestId: string;
+  children: (id: string) => React.ReactNode;
+};
+
+const FilterField: React.FC<FilterFieldProps> = ({ label, tooltip, dataTestId, children }) => {
+  const id = React.useId();
+  return (
+    <div className="space-y-1" data-testid={dataTestId}>
+      <div className="flex items-center justify-between">
+        <label
+          htmlFor={id}
+          className="flex items-center gap-2 text-xs uppercase tracking-wide text-slate-400"
+        >
+          {label}
+          <InfoTooltip text={tooltip} />
+        </label>
+      </div>
+      {children(id)}
+    </div>
+  );
+};
+
+type SectionCardProps = {
+  title: string;
+  count: number;
+  onReset: () => void;
+  expanded: boolean;
+  onToggle: () => void;
+  children: React.ReactNode;
+};
+
+const SectionCard: React.FC<SectionCardProps> = ({ title, count, onReset, expanded, onToggle, children }) => (
+  <div className="card overflow-hidden border border-slate-800 bg-slate-900/60">
+    <button
+      type="button"
+      onClick={onToggle}
+      className="flex w-full items-center justify-between px-4 py-3 text-left"
+    >
+      <div className="flex items-center gap-3">
+        <span className="text-sm font-semibold text-white">{title}</span>
+        <span className="rounded-full bg-emerald-500/10 px-2 py-0.5 text-[11px] text-emerald-200">{count}</span>
+      </div>
+      <div className="flex items-center gap-3 text-xs">
+        <button
+          type="button"
+          onClick={(event) => {
+            event.stopPropagation();
+            onReset();
+          }}
+          className="rounded-full border border-emerald-500/40 bg-slate-900 px-2 py-0.5 text-[11px] uppercase tracking-wide text-emerald-200 hover:bg-emerald-500/10"
+        >
+          Reset
+        </button>
+        <span className="text-emerald-300">{expanded ? 'v' : '>'}</span>
+      </div>
+    </button>
+    {expanded ? <div className="space-y-4 border-t border-slate-800/60 px-4 py-4 text-sm text-slate-200">{children}</div> : null}
+  </div>
+);
 
 const defaultChannelMix = {
   'ch-search': 0.32,
@@ -233,9 +383,7 @@ const MarketRadar: React.FC = () => {
   const offers = useGlobalStore((s) => s.offers);
   const channels = useGlobalStore((s) => s.channels);
   const assumptions = useGlobalStore((s) => s.assumptions);
-  const activeFilters = useGlobalStore((s) => s.activeFilters);
   const cartSegmentIds = useGlobalStore((s) => s.cartSegmentIds);
-  const setFilters = useGlobalStore((s) => s.setFilters);
   const setRecommended = useGlobalStore((s) => s.setRecommendedSegmentIds);
   const addToCart = useGlobalStore((s) => s.addSegmentToCart);
   const removeFromCart = useGlobalStore((s) => s.removeSegmentFromCart);
@@ -245,6 +393,126 @@ const MarketRadar: React.FC = () => {
   const [view, setView] = React.useState<ViewMode>('market');
   const [command, setCommand] = React.useState('');
   const [intentSummary, setIntentSummary] = React.useState('');
+  const [filters, setFilters] = React.useState<Filters>(() => {
+    const base = createDefaultFilters();
+    if (typeof window === 'undefined') return base;
+    const stored = window.localStorage.getItem(FILTER_STORAGE_KEY);
+    if (!stored) return base;
+    try {
+      const parsed = JSON.parse(stored) as Partial<Filters>;
+      return mergeFilters(base, parsed);
+    } catch (error) {
+      console.warn('Failed to parse stored Market Radar filters', error);
+      return base;
+    }
+  });
+  const [expandedSections, setExpandedSections] = React.useState<Record<keyof Filters, boolean>>({
+    peoplePlace: true,
+    motivationMindset: true,
+    behaviorsInterests: true,
+    externalSwitchTriggers: true,
+    competitiveEnvironment: true
+  });
+  const [savedSetFlash, setSavedSetFlash] = React.useState('');
+
+  React.useEffect(() => {
+    if (typeof window === 'undefined') return;
+    window.localStorage.setItem(FILTER_STORAGE_KEY, JSON.stringify(filters));
+  }, [filters]);
+
+  const queryPayload = React.useMemo(() => buildQuery(filters), [filters]);
+
+  const countRangeActive = (range: [number, number]) => range[0] !== 0 || range[1] !== 0;
+
+  const headerCounts = React.useMemo(() => {
+    const peoplePlace = [
+      filters.peoplePlace.locationContext.geoLevel !== 'National',
+      filters.peoplePlace.locationContext.areaType !== 'Any',
+      Boolean(filters.peoplePlace.locationContext.detail),
+      countRangeActive(filters.peoplePlace.incomeLevel),
+      filters.peoplePlace.hhSizeLines.hhSize !== 'Any',
+      filters.peoplePlace.hhSizeLines.lines !== 'Any',
+      filters.peoplePlace.device5G.deviceTypes.length > 0,
+      filters.peoplePlace.device5G.fiveGReady !== 'Any',
+      countRangeActive(filters.peoplePlace.tenurePay.tenureMonths),
+      filters.peoplePlace.tenurePay.payReliability !== 'Any'
+    ].filter(Boolean).length;
+
+    const motivationMindset = [
+      filters.motivationMindset.priceSensitivity !== 50,
+      filters.motivationMindset.speedCoverageImportance !== 50,
+      filters.motivationMindset.valueForMoney !== 50,
+      filters.motivationMindset.switchLikelihood2mo !== 50,
+      filters.motivationMindset.topFrustrations.length > 0
+    ].filter(Boolean).length;
+
+    const behaviorsInterests = [
+      filters.behaviorsInterests.socialTrendAffinity !== 50,
+      filters.behaviorsInterests.topSpendOutsideConn.length > 0,
+      countRangeActive(filters.behaviorsInterests.avgConnSpend),
+      filters.behaviorsInterests.streamingGamingUsage !== 50,
+      filters.behaviorsInterests.bundlePropensity.length > 0
+    ].filter(Boolean).length;
+
+    const externalSwitchTriggers = [
+      filters.externalSwitchTriggers.recentMove !== 'Any',
+      filters.externalSwitchTriggers.newServicesAvailable.length > 0,
+      filters.externalSwitchTriggers.competitorPromoLevel !== 'Any',
+      filters.externalSwitchTriggers.eventWindow.length > 0,
+      filters.externalSwitchTriggers.localDisruption.length > 0
+    ].filter(Boolean).length;
+
+    const competitiveEnvironment = [
+      filters.competitiveEnvironment.currentPreviousProvider.length > 0,
+      filters.competitiveEnvironment.comparingTo !== 'Any',
+      filters.competitiveEnvironment.rivalBeatsUsOn.length > 0,
+      countRangeActive(filters.competitiveEnvironment.winRateVsRival),
+      filters.competitiveEnvironment.rivalServiceAtAddress !== 'Any'
+    ].filter(Boolean).length;
+
+    return {
+      peoplePlace,
+      motivationMindset,
+      behaviorsInterests,
+      externalSwitchTriggers,
+      competitiveEnvironment,
+      total:
+        peoplePlace +
+        motivationMindset +
+        behaviorsInterests +
+        externalSwitchTriggers +
+        competitiveEnvironment
+    } as const;
+  }, [filters]);
+
+  const resetSection = (key: keyof Filters) => {
+    const defaults = createDefaultFilters();
+    setFilters((prev) => ({ ...prev, [key]: defaults[key] }));
+  };
+
+  const clearAllFilters = () => {
+    setFilters(createDefaultFilters());
+  };
+
+  const saveFilterSet = () => {
+    if (typeof window === 'undefined') return;
+    window.localStorage.setItem(FILTER_SET_STORAGE_KEY, JSON.stringify(filters));
+    setSavedSetFlash('Saved');
+    window.setTimeout(() => setSavedSetFlash(''), 1200);
+  };
+
+  const toggleSection = (key: keyof Filters) => {
+    setExpandedSections((prev) => ({ ...prev, [key]: !prev[key] }));
+  };
+
+  const recordAction = (segmentIds: string | string[], action: 'shortlist' | 'advance') => {
+    if (typeof window === 'undefined') return;
+    const ids = Array.isArray(segmentIds) ? segmentIds : [segmentIds];
+    window.localStorage.setItem(`sbm.mr.${action}`, JSON.stringify({ segmentIds: ids, filters: queryPayload }));
+  };
+
+  const toggleChip = (list: string[], value: string) =>
+    list.includes(value) ? list.filter((item) => item !== value) : [...list, value];
 
   const computeSegmentSim = React.useCallback(
     (segmentId: string) => {
@@ -277,28 +545,27 @@ const MarketRadar: React.FC = () => {
   );
 
   const rankedSegments = React.useMemo(() => {
+    const regionDetail = filters.peoplePlace.locationContext.detail?.toLowerCase();
+    const pricePref = filters.motivationMindset.priceSensitivity;
+    const priceBand = pricePref === 50 ? 'any' : pricePref >= 67 ? 'high' : pricePref <= 33 ? 'low' : 'medium';
+    const sizeFloor = filters.peoplePlace.incomeLevel[0];
+
     const filtered = segments
       .map((segment) => ({
         segment,
         sim: computeSegmentSim(segment.id)
       }))
       .filter(({ segment }) => {
-        if (activeFilters.region && activeFilters.region !== 'national') {
-          const region = String(activeFilters.region).toLowerCase();
-          if (!segment.region.toLowerCase().includes(region)) {
-            return false;
-          }
-        }
-        if (activeFilters.minSize && segment.size < Number(activeFilters.minSize)) {
+        if (regionDetail && !segment.region.toLowerCase().includes(regionDetail)) {
           return false;
         }
-        if (activeFilters.priceSensitivity) {
-          const desired = String(activeFilters.priceSensitivity).toLowerCase();
-          if (desired !== 'any') {
-            if (desired === 'high' && segment.priceSensitivity < 0.7) return false;
-            if (desired === 'medium' && (segment.priceSensitivity < 0.45 || segment.priceSensitivity > 0.7)) return false;
-            if (desired === 'low' && segment.priceSensitivity >= 0.45) return false;
-          }
+        if (sizeFloor && segment.size < sizeFloor) {
+          return false;
+        }
+        if (priceBand !== 'any') {
+          if (priceBand === 'high' && segment.priceSensitivity < 0.7) return false;
+          if (priceBand === 'medium' && (segment.priceSensitivity < 0.45 || segment.priceSensitivity > 0.7)) return false;
+          if (priceBand === 'low' && segment.priceSensitivity >= 0.45) return false;
         }
         return true;
       })
@@ -306,7 +573,7 @@ const MarketRadar: React.FC = () => {
       .slice(0, 9);
     setRecommended(filtered.map(({ segment }) => segment.id));
     return filtered;
-  }, [activeFilters, computeSegmentSim, segments, setRecommended]);
+  }, [computeSegmentSim, filters, segments, setRecommended]);
 
   const bubbleData: BubblePoint[] = rankedSegments.map(({ segment, sim }) => ({
     id: segment.id,
@@ -317,8 +584,44 @@ const MarketRadar: React.FC = () => {
   }));
 
   const handleCommand = () => {
-    const { filters, summary } = parseIntent(command);
-    setFilters(filters);
+    const { filters: intentFilters, summary } = parseIntent(command);
+    setFilters((prev) => {
+      const next = cloneFilters(prev);
+      if (intentFilters.region) {
+        const region = String(intentFilters.region).toLowerCase();
+        if (['urban', 'suburban', 'rural'].includes(region)) {
+          next.peoplePlace.locationContext = {
+            ...next.peoplePlace.locationContext,
+            geoLevel: 'National',
+            areaType: region.charAt(0).toUpperCase() + region.slice(1) as LocationContext['areaType'],
+            detail: undefined
+          };
+        } else if (region === 'national') {
+          next.peoplePlace.locationContext = { geoLevel: 'National', areaType: 'Any', detail: undefined };
+        } else {
+          next.peoplePlace.locationContext = {
+            ...next.peoplePlace.locationContext,
+            geoLevel: 'Region',
+            areaType: 'Any',
+            detail: region
+          };
+        }
+      }
+      if (intentFilters.priceSensitivity) {
+        const desired = String(intentFilters.priceSensitivity).toLowerCase();
+        next.motivationMindset.priceSensitivity =
+          desired === 'high' ? 80 : desired === 'low' ? 20 : 50;
+      }
+      if (intentFilters.switchLikelihood) {
+        next.motivationMindset.switchLikelihood2mo =
+          String(intentFilters.switchLikelihood).toLowerCase() === 'high' ? 80 : 65;
+      }
+      if (intentFilters.valueSensitivity) {
+        const val = String(intentFilters.valueSensitivity).toLowerCase();
+        next.motivationMindset.valueForMoney = val === 'high' ? 80 : val === 'low' ? 20 : 50;
+      }
+      return next;
+    });
     setIntentSummary(summary);
   };
 
@@ -367,6 +670,7 @@ const MarketRadar: React.FC = () => {
   const rightRailSections = React.useMemo(() => {
     if (!activeSegment) return [];
     const segment = activeSegment.segment;
+    const showCompetitiveCallout = headerCounts.competitiveEnvironment > 0;
     return [
       {
         id: 'quant',
@@ -407,11 +711,18 @@ const MarketRadar: React.FC = () => {
           description: 'Understand who else is active and how we can win.'
         },
         body: (
-          <ul className="space-y-1">
-            <li>Primary rival: Coverage gaps exploited by BetaTel</li>
-            <li>Local promo intensity: {Math.round(activeSegment.sim.opportunity / 1.6)} index</li>
-            <li>Network perception: {Math.round(segment.valueSensitivity * 100)} / 100</li>
-          </ul>
+          <div className="space-y-2">
+            {showCompetitiveCallout ? (
+              <div className="rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-3 py-2 text-xs text-emerald-100">
+                Competitive filters active • align playbook with rival dynamics.
+              </div>
+            ) : null}
+            <ul className="space-y-1">
+              <li>Primary rival: Coverage gaps exploited by BetaTel</li>
+              <li>Local promo intensity: {Math.round(activeSegment.sim.opportunity / 1.6)} index</li>
+              <li>Network perception: {Math.round(segment.valueSensitivity * 100)} / 100</li>
+            </ul>
+          </div>
         )
       },
       {
@@ -430,7 +741,7 @@ const MarketRadar: React.FC = () => {
         )
       }
     ];
-  }, [activeSegment]);
+  }, [activeSegment, headerCounts.competitiveEnvironment]);
 
   return (
     <div className="space-y-6">
@@ -499,57 +810,1051 @@ const MarketRadar: React.FC = () => {
               </span>
             ) : null}
           </div>
-          {filterGroups.map((group) => (
-            <div key={group.id} className="card border border-slate-800 p-4">
-              <div className="flex items-center justify-between">
-                <h3 className="text-sm font-semibold text-white">{group.label}</h3>
-                <InfoPopover title={group.label} description={`Filters linked to the ${group.label} framework.`} />
+          <div className="relative">
+            <div className="sticky top-0 z-20 -mx-4 flex items-center justify-between border-b border-slate-800/60 bg-slate-900/80 px-4 py-2 text-[11px] uppercase tracking-wide text-slate-400">
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={clearAllFilters}
+                  className="rounded-full border border-emerald-500/40 bg-slate-900 px-3 py-1 text-[11px] font-semibold text-emerald-200 hover:bg-emerald-500/10"
+                >
+                  Clear all
+                </button>
+                <button
+                  type="button"
+                  onClick={saveFilterSet}
+                  className="rounded-full border border-emerald-500/40 bg-emerald-500/10 px-3 py-1 text-[11px] font-semibold text-emerald-200 hover:bg-emerald-500/20"
+                >
+                  Save filter set
+                </button>
+                {savedSetFlash ? <span className="text-emerald-300">{savedSetFlash}</span> : null}
               </div>
-              <div className="mt-3 space-y-3">
-                {group.fields.map((field) => {
-                  const value = activeFilters[field.id] ?? (field.type === 'select' ? field.options?.[0]?.toLowerCase() ?? '' : '');
-                  return (
-                    <div key={field.id} className="space-y-1">
-                      <label className="flex items-center justify-between text-xs uppercase tracking-wide text-slate-400">
-                        {field.label}
-                        <InfoPopover title={field.info.title} description={field.info.description} placement="left" />
-                      </label>
-                      {field.type === 'select' ? (
-                        <select
-                          value={value}
-                          onChange={(event) => setFilters({ [field.id]: event.target.value.toLowerCase() })}
-                          className="w-full rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-white focus:border-emerald-500 focus:outline-none"
-                        >
-                          {field.options?.map((option) => (
-                            <option key={option} value={option.toLowerCase()}>
-                              {option}
-                            </option>
-                          ))}
-                        </select>
-                      ) : field.type === 'range' ? (
-                        <input
-                          type="number"
-                          min={0}
-                          value={activeFilters[field.id] ?? ''}
-                          onChange={(event) => setFilters({ [field.id]: event.target.value ? Number(event.target.value) : undefined })}
-                          className="w-full rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-white focus:border-emerald-500 focus:outline-none"
-                          placeholder="Size in households"
-                        />
-                      ) : (
-                        <input
-                          type="text"
-                          value={activeFilters[field.id] ?? ''}
-                          onChange={(event) => setFilters({ [field.id]: event.target.value })}
-                          className="w-full rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-white focus:border-emerald-500 focus:outline-none"
-                          placeholder={field.placeholder}
-                        />
-                      )}
-                    </div>
-                  );
-                })}
-              </div>
+              <span className="rounded-full bg-emerald-500/10 px-2 py-0.5 text-[11px] text-emerald-200">Active {headerCounts.total}</span>
             </div>
-          ))}
+            <div className="mt-3 flex flex-col gap-3">
+              <SectionCard
+                title="People & Place"
+                count={headerCounts.peoplePlace}
+                onReset={() => resetSection('peoplePlace')}
+                expanded={expandedSections.peoplePlace}
+                onToggle={() => toggleSection('peoplePlace')}
+              >
+                <FilterField
+                  label="Location context"
+                  tooltip="Geo grain + neighborhood type to localize opportunity."
+                  dataTestId="mr-peoplePlace-locationContext"
+                >
+                  {(id) => {
+                    const geoLevel = filters.peoplePlace.locationContext.geoLevel;
+                    const detailPlaceholder =
+                      geoLevel === 'Region'
+                        ? 'Region (e.g., West)'
+                        : geoLevel === 'State'
+                          ? 'State (e.g., CA)'
+                          : geoLevel === 'ZIP'
+                            ? 'ZIP or ZIP3'
+                            : 'Descriptor';
+                    return (
+                      <div className="space-y-2">
+                        <div className="grid grid-cols-2 gap-2">
+                          <select
+                            id={id}
+                            value={geoLevel}
+                            onChange={(event) =>
+                              setFilters((prev) => ({
+                                ...prev,
+                                peoplePlace: {
+                                  ...prev.peoplePlace,
+                                  locationContext: {
+                                    ...prev.peoplePlace.locationContext,
+                                    geoLevel: event.target.value as LocationContext['geoLevel'],
+                                    detail: event.target.value === 'National' ? undefined : prev.peoplePlace.locationContext.detail
+                                  }
+                                }
+                              }))
+                            }
+                            className="w-full rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-white focus:border-emerald-500 focus:outline-none"
+                          >
+                            {['National', 'Region', 'State', 'ZIP'].map((option) => (
+                              <option key={option} value={option}>
+                                {option}
+                              </option>
+                            ))}
+                          </select>
+                          <select
+                            id={`${id}-area`}
+                            value={filters.peoplePlace.locationContext.areaType}
+                            onChange={(event) =>
+                              setFilters((prev) => ({
+                                ...prev,
+                                peoplePlace: {
+                                  ...prev.peoplePlace,
+                                  locationContext: {
+                                    ...prev.peoplePlace.locationContext,
+                                    areaType: event.target.value as LocationContext['areaType']
+                                  }
+                                }
+                              }))
+                            }
+                            className="w-full rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-white focus:border-emerald-500 focus:outline-none"
+                          >
+                            {['Any', 'Urban', 'Suburban', 'Rural'].map((option) => (
+                              <option key={option} value={option}>
+                                {option}
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+                        {geoLevel !== 'National' ? (
+                          <input
+                            id={`${id}-detail`}
+                            value={filters.peoplePlace.locationContext.detail ?? ''}
+                            onChange={(event) =>
+                              setFilters((prev) => ({
+                                ...prev,
+                                peoplePlace: {
+                                  ...prev.peoplePlace,
+                                  locationContext: {
+                                    ...prev.peoplePlace.locationContext,
+                                    detail: event.target.value
+                                  }
+                                }
+                              }))
+                            }
+                            placeholder={detailPlaceholder}
+                            className="w-full rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-white focus:border-emerald-500 focus:outline-none"
+                          />
+                        ) : null}
+                      </div>
+                    );
+                  }}
+                </FilterField>
+                <FilterField
+                  label="Income level (range)"
+                  tooltip="Household income band to index affordability and ARPU headroom."
+                  dataTestId="mr-peoplePlace-incomeLevel"
+                >
+                  {(id) => (
+                    <div className="grid grid-cols-2 gap-2">
+                      <input
+                        id={id}
+                        type="number"
+                        min={0}
+                        value={filters.peoplePlace.incomeLevel[0] || ''}
+                        onChange={(event) =>
+                          setFilters((prev) => ({
+                            ...prev,
+                            peoplePlace: {
+                              ...prev.peoplePlace,
+                              incomeLevel: [Number(event.target.value || 0), prev.peoplePlace.incomeLevel[1]]
+                            }
+                          }))
+                        }
+                        placeholder="Min"
+                        className="w-full rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-white focus:border-emerald-500 focus:outline-none"
+                      />
+                      <input
+                        id={`${id}-max`}
+                        type="number"
+                        min={0}
+                        value={filters.peoplePlace.incomeLevel[1] || ''}
+                        onChange={(event) =>
+                          setFilters((prev) => ({
+                            ...prev,
+                            peoplePlace: {
+                              ...prev.peoplePlace,
+                              incomeLevel: [prev.peoplePlace.incomeLevel[0], Number(event.target.value || 0)]
+                            }
+                          }))
+                        }
+                        placeholder="Max"
+                        className="w-full rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-white focus:border-emerald-500 focus:outline-none"
+                      />
+                    </div>
+                  )}
+                </FilterField>
+                <FilterField
+                  label="Household size & active lines"
+                  tooltip="Match plan fit to number of people and current lines in market."
+                  dataTestId="mr-peoplePlace-hhSizeLines"
+                >
+                  {(id) => (
+                    <div className="grid grid-cols-2 gap-2">
+                          <select
+                            id={id}
+                            value={String(filters.peoplePlace.hhSizeLines.hhSize)}
+                        onChange={(event) =>
+                          setFilters((prev) => ({
+                            ...prev,
+                            peoplePlace: {
+                              ...prev.peoplePlace,
+                              hhSizeLines: {
+                                ...prev.peoplePlace.hhSizeLines,
+                                hhSize: event.target.value === 'Any' ? 'Any' : Number(event.target.value)
+                              }
+                            }
+                          }))
+                        }
+                        className="w-full rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-white focus:border-emerald-500 focus:outline-none"
+                      >
+                        {['Any', '1', '2', '3', '4', '5', '6+'].map((option) => (
+                          <option key={option} value={option === '6+' ? '6' : option}>
+                            {option}
+                          </option>
+                        ))}
+                      </select>
+                          <select
+                            id={`${id}-lines`}
+                            value={String(filters.peoplePlace.hhSizeLines.lines)}
+                        onChange={(event) =>
+                          setFilters((prev) => ({
+                            ...prev,
+                            peoplePlace: {
+                              ...prev.peoplePlace,
+                              hhSizeLines: {
+                                ...prev.peoplePlace.hhSizeLines,
+                                lines: event.target.value === 'Any' ? 'Any' : Number(event.target.value)
+                              }
+                            }
+                          }))
+                        }
+                        className="w-full rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-white focus:border-emerald-500 focus:outline-none"
+                      >
+                        {['Any', '1', '2', '3', '4', '5', '6+'].map((option) => (
+                          <option key={`lines-${option}`} value={option === '6+' ? '6' : option}>
+                            {option}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  )}
+                </FilterField>
+                <FilterField
+                  label="Device type & 5G capability"
+                  tooltip="Device mix & readiness to tailor offers."
+                  dataTestId="mr-peoplePlace-device5G"
+                >
+                  {(id) => (
+                    <div className="space-y-2">
+                      <input id={id} type="hidden" value="" readOnly />
+                      <div className="flex flex-wrap gap-2">
+                        {deviceTypeOptions.map((device) => {
+                          const selected = filters.peoplePlace.device5G.deviceTypes.includes(device);
+                          return (
+                            <button
+                              key={device}
+                              type="button"
+                              onClick={() =>
+                                setFilters((prev) => ({
+                                  ...prev,
+                                  peoplePlace: {
+                                    ...prev.peoplePlace,
+                                    device5G: {
+                                      ...prev.peoplePlace.device5G,
+                                      deviceTypes: toggleChip(prev.peoplePlace.device5G.deviceTypes, device)
+                                    }
+                                  }
+                                }))
+                              }
+                              className={`rounded-full border px-3 py-1 text-xs ${selected ? 'border-emerald-500/60 bg-emerald-500/20 text-emerald-100' : 'border-slate-700 bg-slate-900 text-slate-300'} hover:border-emerald-500/60`}
+                            >
+                              {device}
+                            </button>
+                          );
+                        })}
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setFilters((prev) => ({
+                            ...prev,
+                            peoplePlace: {
+                              ...prev.peoplePlace,
+                              device5G: {
+                                ...prev.peoplePlace.device5G,
+                                fiveGReady:
+                                  prev.peoplePlace.device5G.fiveGReady === 'Any'
+                                    ? true
+                                    : prev.peoplePlace.device5G.fiveGReady === true
+                                      ? false
+                                      : 'Any'
+                              }
+                            }
+                          }))
+                        }
+                        className="rounded-full border border-emerald-500/40 bg-slate-900 px-3 py-1 text-xs uppercase tracking-wide text-emerald-200 hover:bg-emerald-500/10"
+                      >
+                        5G-ready: {filters.peoplePlace.device5G.fiveGReady === 'Any' ? 'Any' : filters.peoplePlace.device5G.fiveGReady ? 'Yes' : 'No'}
+                      </button>
+                    </div>
+                  )}
+                </FilterField>
+                <FilterField
+                  label="Tenure & payment reliability"
+                  tooltip="Blend of tenure buckets and on-time payment score."
+                  dataTestId="mr-peoplePlace-tenurePay"
+                >
+                  {(id) => (
+                    <div className="grid grid-cols-3 gap-2">
+                      <input
+                        id={id}
+                        type="number"
+                        min={0}
+                        value={filters.peoplePlace.tenurePay.tenureMonths[0] || ''}
+                        onChange={(event) =>
+                          setFilters((prev) => ({
+                            ...prev,
+                            peoplePlace: {
+                              ...prev.peoplePlace,
+                              tenurePay: {
+                                ...prev.peoplePlace.tenurePay,
+                                tenureMonths: [Number(event.target.value || 0), prev.peoplePlace.tenurePay.tenureMonths[1]]
+                              }
+                            }
+                          }))
+                        }
+                        placeholder="Min mo"
+                        className="w-full rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-white focus:border-emerald-500 focus:outline-none"
+                      />
+                      <input
+                        id={`${id}-max`}
+                        type="number"
+                        min={0}
+                        value={filters.peoplePlace.tenurePay.tenureMonths[1] || ''}
+                        onChange={(event) =>
+                          setFilters((prev) => ({
+                            ...prev,
+                            peoplePlace: {
+                              ...prev.peoplePlace,
+                              tenurePay: {
+                                ...prev.peoplePlace.tenurePay,
+                                tenureMonths: [prev.peoplePlace.tenurePay.tenureMonths[0], Number(event.target.value || 0)]
+                              }
+                            }
+                          }))
+                        }
+                        placeholder="Max mo"
+                        className="w-full rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-white focus:border-emerald-500 focus:outline-none"
+                      />
+                      <select
+                        id={`${id}-score`}
+                        value={String(filters.peoplePlace.tenurePay.payReliability)}
+                        onChange={(event) =>
+                          setFilters((prev) => ({
+                            ...prev,
+                            peoplePlace: {
+                              ...prev.peoplePlace,
+                              tenurePay: {
+                                ...prev.peoplePlace.tenurePay,
+                                payReliability:
+                                  event.target.value === 'Any' ? 'Any' : Number(event.target.value)
+                              }
+                            }
+                          }))
+                        }
+                        className="w-full rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-white focus:border-emerald-500 focus:outline-none"
+                      >
+                        {['Any', '1', '2', '3', '4', '5'].map((option) => (
+                          <option key={`pay-${option}`} value={option}>
+                            {option}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  )}
+                </FilterField>
+              </SectionCard>
+              <SectionCard
+                title="Motivation & Mindset"
+                count={headerCounts.motivationMindset}
+                onReset={() => resetSection('motivationMindset')}
+                expanded={expandedSections.motivationMindset}
+                onToggle={() => toggleSection('motivationMindset')}
+              >
+                <FilterField
+                  label="Price sensitivity"
+                  tooltip="Self-reported or inferred sensitivity to monthly bill changes."
+                  dataTestId="mr-motivationMindset-priceSensitivity"
+                >
+                  {(id) => (
+                    <div className="space-y-1">
+                      <input
+                        id={id}
+                        type="range"
+                        min={0}
+                        max={100}
+                        step={5}
+                        value={filters.motivationMindset.priceSensitivity}
+                        onChange={(event) =>
+                          setFilters((prev) => ({
+                            ...prev,
+                            motivationMindset: {
+                              ...prev.motivationMindset,
+                              priceSensitivity: Number(event.target.value)
+                            }
+                          }))
+                        }
+                        className="w-full"
+                      />
+                      <span className="text-xs text-slate-400">
+                        {filters.motivationMindset.priceSensitivity === 50
+                          ? 'Any'
+                          : `${filters.motivationMindset.priceSensitivity}`}
+                      </span>
+                    </div>
+                  )}
+                </FilterField>
+                <FilterField
+                  label="Importance of speed & coverage"
+                  tooltip="Measures perceived need for network performance."
+                  dataTestId="mr-motivationMindset-speedCoverageImportance"
+                >
+                  {(id) => (
+                    <div className="space-y-1">
+                      <input
+                        id={id}
+                        type="range"
+                        min={0}
+                        max={100}
+                        step={5}
+                        value={filters.motivationMindset.speedCoverageImportance}
+                        onChange={(event) =>
+                          setFilters((prev) => ({
+                            ...prev,
+                            motivationMindset: {
+                              ...prev.motivationMindset,
+                              speedCoverageImportance: Number(event.target.value)
+                            }
+                          }))
+                        }
+                        className="w-full"
+                      />
+                      <span className="text-xs text-slate-400">
+                        {filters.motivationMindset.speedCoverageImportance === 50
+                          ? 'Any'
+                          : `${filters.motivationMindset.speedCoverageImportance}`}
+                      </span>
+                    </div>
+                  )}
+                </FilterField>
+                <FilterField
+                  label="Perceived value for money"
+                  tooltip="How the audience rates the value equation of their plan."
+                  dataTestId="mr-motivationMindset-valueForMoney"
+                >
+                  {(id) => (
+                    <div className="space-y-1">
+                      <input
+                        id={id}
+                        type="range"
+                        min={0}
+                        max={100}
+                        step={5}
+                        value={filters.motivationMindset.valueForMoney}
+                        onChange={(event) =>
+                          setFilters((prev) => ({
+                            ...prev,
+                            motivationMindset: {
+                              ...prev.motivationMindset,
+                              valueForMoney: Number(event.target.value)
+                            }
+                          }))
+                        }
+                        className="w-full"
+                      />
+                      <span className="text-xs text-slate-400">
+                        {filters.motivationMindset.valueForMoney === 50
+                          ? 'Any'
+                          : `${filters.motivationMindset.valueForMoney}`}
+                      </span>
+                    </div>
+                  )}
+                </FilterField>
+                <FilterField
+                  label="Likelihood to switch (next 2 months)"
+                  tooltip="Intent signal for near-term churn or provider change."
+                  dataTestId="mr-motivationMindset-switchLikelihood2mo"
+                >
+                  {(id) => (
+                    <div className="space-y-1">
+                      <input
+                        id={id}
+                        type="range"
+                        min={0}
+                        max={100}
+                        step={5}
+                        value={filters.motivationMindset.switchLikelihood2mo}
+                        onChange={(event) =>
+                          setFilters((prev) => ({
+                            ...prev,
+                            motivationMindset: {
+                              ...prev.motivationMindset,
+                              switchLikelihood2mo: Number(event.target.value)
+                            }
+                          }))
+                        }
+                        className="w-full"
+                      />
+                      <span className="text-xs text-slate-400">
+                        {filters.motivationMindset.switchLikelihood2mo === 50
+                          ? 'Any'
+                          : `${filters.motivationMindset.switchLikelihood2mo}`}
+                      </span>
+                    </div>
+                  )}
+                </FilterField>
+                <FilterField
+                  label="Top frustrations with current provider"
+                  tooltip="Pinpoint sticking points you can solve."
+                  dataTestId="mr-motivationMindset-topFrustrations"
+                >
+                  {(id) => (
+                    <div className="flex flex-wrap gap-2">
+                      <input id={id} type="hidden" value="" readOnly />
+                      {frustrationOptions.map((option) => {
+                        const selected = filters.motivationMindset.topFrustrations.includes(option);
+                        return (
+                          <button
+                            key={option}
+                            type="button"
+                            onClick={() =>
+                              setFilters((prev) => ({
+                                ...prev,
+                                motivationMindset: {
+                                  ...prev.motivationMindset,
+                                  topFrustrations: toggleChip(prev.motivationMindset.topFrustrations, option)
+                                }
+                              }))
+                            }
+                            className={`rounded-full border px-3 py-1 text-xs ${selected ? 'border-emerald-500/60 bg-emerald-500/20 text-emerald-100' : 'border-slate-700 bg-slate-900 text-slate-300'} hover:border-emerald-500/60`}
+                          >
+                            {option}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  )}
+                </FilterField>
+              </SectionCard>
+              <SectionCard
+                title="Behaviors & Interests"
+                count={headerCounts.behaviorsInterests}
+                onReset={() => resetSection('behaviorsInterests')}
+                expanded={expandedSections.behaviorsInterests}
+                onToggle={() => toggleSection('behaviorsInterests')}
+              >
+                <FilterField
+                  label="Social / trend affinity"
+                  tooltip="Appetite for pop culture and viral trends."
+                  dataTestId="mr-behaviorsInterests-socialTrendAffinity"
+                >
+                  {(id) => (
+                    <div className="space-y-1">
+                      <input
+                        id={id}
+                        type="range"
+                        min={0}
+                        max={100}
+                        step={5}
+                        value={filters.behaviorsInterests.socialTrendAffinity}
+                        onChange={(event) =>
+                          setFilters((prev) => ({
+                            ...prev,
+                            behaviorsInterests: {
+                              ...prev.behaviorsInterests,
+                              socialTrendAffinity: Number(event.target.value)
+                            }
+                          }))
+                        }
+                        className="w-full"
+                      />
+                      <span className="text-xs text-slate-400">
+                        {filters.behaviorsInterests.socialTrendAffinity === 50
+                          ? 'Any'
+                          : `${filters.behaviorsInterests.socialTrendAffinity}`}
+                      </span>
+                    </div>
+                  )}
+                </FilterField>
+                <FilterField
+                  label="Top spend outside connectivity"
+                  tooltip="Follow the dollars to adjacent purchase categories."
+                  dataTestId="mr-behaviorsInterests-topSpendOutsideConn"
+                >
+                  {(id) => (
+                    <div className="flex flex-wrap gap-2">
+                      <input id={id} type="hidden" value="" readOnly />
+                      {spendSectorOptions.map((option) => {
+                        const selected = filters.behaviorsInterests.topSpendOutsideConn.includes(option);
+                        return (
+                          <button
+                            key={option}
+                            type="button"
+                            onClick={() =>
+                              setFilters((prev) => ({
+                                ...prev,
+                                behaviorsInterests: {
+                                  ...prev.behaviorsInterests,
+                                  topSpendOutsideConn: toggleChip(prev.behaviorsInterests.topSpendOutsideConn, option)
+                                }
+                              }))
+                            }
+                            className={`rounded-full border px-3 py-1 text-xs ${selected ? 'border-emerald-500/60 bg-emerald-500/20 text-emerald-100' : 'border-slate-700 bg-slate-900 text-slate-300'} hover:border-emerald-500/60`}
+                          >
+                            {option}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  )}
+                </FilterField>
+                <FilterField
+                  label="Avg monthly connectivity spend"
+                  tooltip="Spending band to gauge ARPU expansion."
+                  dataTestId="mr-behaviorsInterests-avgConnSpend"
+                >
+                  {(id) => (
+                    <div className="grid grid-cols-2 gap-2">
+                      <input
+                        id={id}
+                        type="number"
+                        min={0}
+                        value={filters.behaviorsInterests.avgConnSpend[0] || ''}
+                        onChange={(event) =>
+                          setFilters((prev) => ({
+                            ...prev,
+                            behaviorsInterests: {
+                              ...prev.behaviorsInterests,
+                              avgConnSpend: [Number(event.target.value || 0), prev.behaviorsInterests.avgConnSpend[1]]
+                            }
+                          }))
+                        }
+                        placeholder="Min $"
+                        className="w-full rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-white focus:border-emerald-500 focus:outline-none"
+                      />
+                      <input
+                        id={`${id}-max`}
+                        type="number"
+                        min={0}
+                        value={filters.behaviorsInterests.avgConnSpend[1] || ''}
+                        onChange={(event) =>
+                          setFilters((prev) => ({
+                            ...prev,
+                            behaviorsInterests: {
+                              ...prev.behaviorsInterests,
+                              avgConnSpend: [prev.behaviorsInterests.avgConnSpend[0], Number(event.target.value || 0)]
+                            }
+                          }))
+                        }
+                        placeholder="Max $"
+                        className="w-full rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-white focus:border-emerald-500 focus:outline-none"
+                      />
+                    </div>
+                  )}
+                </FilterField>
+                <FilterField
+                  label="Streaming / gaming usage"
+                  tooltip="Engagement level with high-bandwidth media."
+                  dataTestId="mr-behaviorsInterests-streamingGamingUsage"
+                >
+                  {(id) => (
+                    <div className="space-y-1">
+                      <input
+                        id={id}
+                        type="range"
+                        min={0}
+                        max={100}
+                        step={5}
+                        value={filters.behaviorsInterests.streamingGamingUsage}
+                        onChange={(event) =>
+                          setFilters((prev) => ({
+                            ...prev,
+                            behaviorsInterests: {
+                              ...prev.behaviorsInterests,
+                              streamingGamingUsage: Number(event.target.value)
+                            }
+                          }))
+                        }
+                        className="w-full"
+                      />
+                      <span className="text-xs text-slate-400">
+                        {filters.behaviorsInterests.streamingGamingUsage === 50
+                          ? 'Any'
+                          : `${filters.behaviorsInterests.streamingGamingUsage}`}
+                      </span>
+                    </div>
+                  )}
+                </FilterField>
+                <FilterField
+                  label="Bundle propensity"
+                  tooltip="Likelihood to respond to bundle offers (mobile, internet, TV)."
+                  dataTestId="mr-behaviorsInterests-bundlePropensity"
+                >
+                  {(id) => (
+                    <div className="flex flex-wrap gap-2">
+                      <input id={id} type="hidden" value="" readOnly />
+                      {bundleOptions.map((option) => {
+                        const selected = filters.behaviorsInterests.bundlePropensity.includes(option);
+                        return (
+                          <button
+                            key={option}
+                            type="button"
+                            onClick={() =>
+                              setFilters((prev) => ({
+                                ...prev,
+                                behaviorsInterests: {
+                                  ...prev.behaviorsInterests,
+                                  bundlePropensity: toggleChip(prev.behaviorsInterests.bundlePropensity, option)
+                                }
+                              }))
+                            }
+                            className={`rounded-full border px-3 py-1 text-xs ${selected ? 'border-emerald-500/60 bg-emerald-500/20 text-emerald-100' : 'border-slate-700 bg-slate-900 text-slate-300'} hover:border-emerald-500/60`}
+                          >
+                            {option}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  )}
+                </FilterField>
+              </SectionCard>
+              <SectionCard
+                title="External Switch Triggers"
+                count={headerCounts.externalSwitchTriggers}
+                onReset={() => resetSection('externalSwitchTriggers')}
+                expanded={expandedSections.externalSwitchTriggers}
+                onToggle={() => toggleSection('externalSwitchTriggers')}
+              >
+                <FilterField
+                  label="Recent move / address change"
+                  tooltip="Signals a high-propensity switching moment."
+                  dataTestId="mr-externalSwitchTriggers-recentMove"
+                >
+                  {(id) => (
+                    <select
+                      id={id}
+                      value={filters.externalSwitchTriggers.recentMove}
+                      onChange={(event) =>
+                        setFilters((prev) => ({
+                          ...prev,
+                          externalSwitchTriggers: {
+                            ...prev.externalSwitchTriggers,
+                            recentMove: event.target.value as Filters['externalSwitchTriggers']['recentMove']
+                          }
+                        }))
+                      }
+                      className="w-full rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-white focus:border-emerald-500 focus:outline-none"
+                    >
+                      {['Any', 'Yes', 'No', 'Unknown'].map((option) => (
+                        <option key={option} value={option}>
+                          {option}
+                        </option>
+                      ))}
+                    </select>
+                  )}
+                </FilterField>
+                <FilterField
+                  label="New services available (Fiber, FWA)"
+                  tooltip="Track fresh infrastructure that changes the value equation."
+                  dataTestId="mr-externalSwitchTriggers-newServicesAvailable"
+                >
+                  {(id) => (
+                    <div className="flex flex-wrap gap-2">
+                      <input id={id} type="hidden" value="" readOnly />
+                      {triggerServices.map((service) => {
+                        const selected = filters.externalSwitchTriggers.newServicesAvailable.includes(service);
+                        return (
+                          <button
+                            key={service}
+                            type="button"
+                            onClick={() =>
+                              setFilters((prev) => ({
+                                ...prev,
+                                externalSwitchTriggers: {
+                                  ...prev.externalSwitchTriggers,
+                                  newServicesAvailable: toggleChip(prev.externalSwitchTriggers.newServicesAvailable, service)
+                                }
+                              }))
+                            }
+                            className={`rounded-full border px-3 py-1 text-xs ${selected ? 'border-emerald-500/60 bg-emerald-500/20 text-emerald-100' : 'border-slate-700 bg-slate-900 text-slate-300'} hover:border-emerald-500/60`}
+                          >
+                            {service}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  )}
+                </FilterField>
+                <FilterField
+                  label="Competitor promo/price change in ZIP"
+                  tooltip="Detect competing moves that heat the market."
+                  dataTestId="mr-externalSwitchTriggers-competitorPromoLevel"
+                >
+                  {(id) => (
+                    <select
+                      id={id}
+                      value={filters.externalSwitchTriggers.competitorPromoLevel}
+                      onChange={(event) =>
+                        setFilters((prev) => ({
+                          ...prev,
+                          externalSwitchTriggers: {
+                            ...prev.externalSwitchTriggers,
+                            competitorPromoLevel: event.target.value as Filters['externalSwitchTriggers']['competitorPromoLevel']
+                          }
+                        }))
+                      }
+                      className="w-full rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-white focus:border-emerald-500 focus:outline-none"
+                    >
+                      {['Any', 'None', 'Minor', 'Significant'].map((option) => (
+                        <option key={option} value={option}>
+                          {option}
+                        </option>
+                      ))}
+                    </select>
+                  )}
+                </FilterField>
+                <FilterField
+                  label="Event-driven window"
+                  tooltip="Moments like back-to-school or holidays to time outreach."
+                  dataTestId="mr-externalSwitchTriggers-eventWindow"
+                >
+                  {(id) => (
+                    <div className="flex flex-wrap gap-2">
+                      <input id={id} type="hidden" value="" readOnly />
+                      {eventWindows.map((eventLabel) => {
+                        const selected = filters.externalSwitchTriggers.eventWindow.includes(eventLabel);
+                        return (
+                          <button
+                            key={eventLabel}
+                            type="button"
+                            onClick={() =>
+                              setFilters((prev) => ({
+                                ...prev,
+                                externalSwitchTriggers: {
+                                  ...prev.externalSwitchTriggers,
+                                  eventWindow: toggleChip(prev.externalSwitchTriggers.eventWindow, eventLabel)
+                                }
+                              }))
+                            }
+                            className={`rounded-full border px-3 py-1 text-xs ${selected ? 'border-emerald-500/60 bg-emerald-500/20 text-emerald-100' : 'border-slate-700 bg-slate-900 text-slate-300'} hover:border-emerald-500/60`}
+                          >
+                            {eventLabel}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  )}
+                </FilterField>
+                <FilterField
+                  label="Local disruption / upgrade event"
+                  tooltip="Capture outages or upgrades that shift sentiment."
+                  dataTestId="mr-externalSwitchTriggers-localDisruption"
+                >
+                  {(id) => (
+                    <div className="flex flex-wrap gap-2">
+                      <input id={id} type="hidden" value="" readOnly />
+                      {disruptionEvents.map((eventLabel) => {
+                        const selected = filters.externalSwitchTriggers.localDisruption.includes(eventLabel);
+                        return (
+                          <button
+                            key={eventLabel}
+                            type="button"
+                            onClick={() =>
+                              setFilters((prev) => ({
+                                ...prev,
+                                externalSwitchTriggers: {
+                                  ...prev.externalSwitchTriggers,
+                                  localDisruption: toggleChip(prev.externalSwitchTriggers.localDisruption, eventLabel)
+                                }
+                              }))
+                            }
+                            className={`rounded-full border px-3 py-1 text-xs ${selected ? 'border-emerald-500/60 bg-emerald-500/20 text-emerald-100' : 'border-slate-700 bg-slate-900 text-slate-300'} hover:border-emerald-500/60`}
+                          >
+                            {eventLabel}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  )}
+                </FilterField>
+              </SectionCard>
+              <SectionCard
+                title="Competitive Environment"
+                count={headerCounts.competitiveEnvironment}
+                onReset={() => resetSection('competitiveEnvironment')}
+                expanded={expandedSections.competitiveEnvironment}
+                onToggle={() => toggleSection('competitiveEnvironment')}
+              >
+                <FilterField
+                  label="Current / previous provider"
+                  tooltip="Anchor on the players they already know."
+                  dataTestId="mr-competitiveEnvironment-currentPreviousProvider"
+                >
+                  {(id) => (
+                    <div className="flex flex-wrap gap-2">
+                      <input id={id} type="hidden" value="" readOnly />
+                      {providerOptions.map((provider) => {
+                        const selected = filters.competitiveEnvironment.currentPreviousProvider.includes(provider);
+                        return (
+                          <button
+                            key={provider}
+                            type="button"
+                            onClick={() =>
+                              setFilters((prev) => ({
+                                ...prev,
+                                competitiveEnvironment: {
+                                  ...prev.competitiveEnvironment,
+                                  currentPreviousProvider: toggleChip(prev.competitiveEnvironment.currentPreviousProvider, provider)
+                                }
+                              }))
+                            }
+                            className={`rounded-full border px-3 py-1 text-xs ${selected ? 'border-emerald-500/60 bg-emerald-500/20 text-emerald-100' : 'border-slate-700 bg-slate-900 text-slate-300'} hover:border-emerald-500/60`}
+                          >
+                            {provider}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  )}
+                </FilterField>
+                <FilterField
+                  label="Actively comparing to"
+                  tooltip="Single rival they are evaluating head-to-head."
+                  dataTestId="mr-competitiveEnvironment-comparingTo"
+                >
+                  {(id) => (
+                    <select
+                      id={id}
+                      value={filters.competitiveEnvironment.comparingTo}
+                      onChange={(event) =>
+                        setFilters((prev) => ({
+                          ...prev,
+                          competitiveEnvironment: {
+                            ...prev.competitiveEnvironment,
+                            comparingTo: event.target.value as Filters['competitiveEnvironment']['comparingTo']
+                          }
+                        }))
+                      }
+                      className="w-full rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-white focus:border-emerald-500 focus:outline-none"
+                    >
+                      {['Any', ...providerOptions].map((provider) => (
+                        <option key={`compare-${provider}`} value={provider}>
+                          {provider}
+                        </option>
+                      ))}
+                    </select>
+                  )}
+                </FilterField>
+                <FilterField
+                  label="Where rival beats us"
+                  tooltip="Dimension(s) where a specific rival over-indexes."
+                  dataTestId="mr-competitiveEnvironment-rivalBeatsUsOn"
+                >
+                  {(id) => (
+                    <div className="flex flex-wrap gap-2">
+                      <input id={id} type="hidden" value="" readOnly />
+                      {rivalStrengths.map((strength) => {
+                        const selected = filters.competitiveEnvironment.rivalBeatsUsOn.includes(strength);
+                        return (
+                          <button
+                            key={strength}
+                            type="button"
+                            onClick={() =>
+                              setFilters((prev) => ({
+                                ...prev,
+                                competitiveEnvironment: {
+                                  ...prev.competitiveEnvironment,
+                                  rivalBeatsUsOn: toggleChip(prev.competitiveEnvironment.rivalBeatsUsOn, strength)
+                                }
+                              }))
+                            }
+                            className={`rounded-full border px-3 py-1 text-xs ${selected ? 'border-emerald-500/60 bg-emerald-500/20 text-emerald-100' : 'border-slate-700 bg-slate-900 text-slate-300'} hover:border-emerald-500/60`}
+                          >
+                            {strength}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  )}
+                </FilterField>
+                <FilterField
+                  label="Historical win-rate vs rival"
+                  tooltip="Range of win-rate performance to calibrate expectations."
+                  dataTestId="mr-competitiveEnvironment-winRateVsRival"
+                >
+                  {(id) => (
+                    <div className="grid grid-cols-2 gap-2">
+                      <input
+                        id={id}
+                        type="number"
+                        min={0}
+                        max={100}
+                        value={filters.competitiveEnvironment.winRateVsRival[0] || ''}
+                        onChange={(event) =>
+                          setFilters((prev) => ({
+                            ...prev,
+                            competitiveEnvironment: {
+                              ...prev.competitiveEnvironment,
+                              winRateVsRival: [Number(event.target.value || 0), prev.competitiveEnvironment.winRateVsRival[1]]
+                            }
+                          }))
+                        }
+                        placeholder="Min %"
+                        className="w-full rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-white focus:border-emerald-500 focus:outline-none"
+                      />
+                      <input
+                        id={`${id}-max`}
+                        type="number"
+                        min={0}
+                        max={100}
+                        value={filters.competitiveEnvironment.winRateVsRival[1] || ''}
+                        onChange={(event) =>
+                          setFilters((prev) => ({
+                            ...prev,
+                            competitiveEnvironment: {
+                              ...prev.competitiveEnvironment,
+                              winRateVsRival: [prev.competitiveEnvironment.winRateVsRival[0], Number(event.target.value || 0)]
+                            }
+                          }))
+                        }
+                        placeholder="Max %"
+                        className="w-full rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-white focus:border-emerald-500 focus:outline-none"
+                      />
+                    </div>
+                  )}
+                </FilterField>
+                <FilterField
+                  label="Rival service at address"
+                  tooltip="Whether the rival can serve the address today."
+                  dataTestId="mr-competitiveEnvironment-rivalServiceAtAddress"
+                >
+                  {(id) => (
+                    <select
+                      id={id}
+                      value={filters.competitiveEnvironment.rivalServiceAtAddress}
+                      onChange={(event) =>
+                        setFilters((prev) => ({
+                          ...prev,
+                          competitiveEnvironment: {
+                            ...prev.competitiveEnvironment,
+                            rivalServiceAtAddress:
+                              event.target.value as Filters['competitiveEnvironment']['rivalServiceAtAddress']
+                          }
+                        }))
+                      }
+                      className="w-full rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-white focus:border-emerald-500 focus:outline-none"
+                    >
+                      {['Any', 'Yes', 'No', 'Unknown'].map((option) => (
+                        <option key={`rival-service-${option}`} value={option}>
+                          {option}
+                        </option>
+                      ))}
+                    </select>
+                  )}
+                </FilterField>
+              </SectionCard>
+            </div>
+          </div>
         </aside>
         <section className="flex flex-col gap-6">
           <div className="flex items-center justify-between">
@@ -576,6 +1881,12 @@ const MarketRadar: React.FC = () => {
                 <h3 className="text-lg font-semibold text-white">Recommended cohorts</h3>
                 <InfoPopover title="Recommended cohorts" description="Shortlist from the live-ranked list below." />
               </div>
+              <div className="flex items-center gap-2">
+                <span className="inline-flex items-center gap-2 rounded-full border border-emerald-500/30 bg-emerald-500/10 px-3 py-1 text-xs text-emerald-200">
+                  Active filters
+                  <span className="rounded-full bg-emerald-500/20 px-2 py-0.5 text-[11px] text-emerald-100">{headerCounts.total}</span>
+                </span>
+              </div>
               <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
                 {rankedSegments.map(({ segment, sim }) => (
                   <SegmentTile
@@ -587,11 +1898,22 @@ const MarketRadar: React.FC = () => {
                     traits={segment.traits}
                     rationale={`Opportunity score ${(sim.opportunity / 100).toFixed(2)} • Conversion ${(sim.conversion * 100).toFixed(1)}%`}
                     selected={cartSegmentIds.includes(segment.id)}
-                    onSelect={(checked) => (checked ? addToCart(segment.id) : removeFromCart(segment.id))}
-                    onAddToCart={() => addToCart(segment.id)}
+                    onSelect={(checked) => {
+                      if (checked) {
+                        addToCart(segment.id);
+                        recordAction(segment.id, 'shortlist');
+                      } else {
+                        removeFromCart(segment.id);
+                      }
+                    }}
+                    onAddToCart={() => {
+                      addToCart(segment.id);
+                      recordAction(segment.id, 'shortlist');
+                    }}
                     onSendToStudio={() => {
                       addToCart(segment.id);
-                      navigate('/segment-studio');
+                      recordAction(segment.id, 'advance');
+                      navigate('/segment-studio', { state: { filters: queryPayload } });
                     }}
                     onPin={() => setActiveSegment(segment.id)}
                   />
@@ -604,15 +1926,29 @@ const MarketRadar: React.FC = () => {
               root={geoTree}
               onSelectRegion={(path) => {
                 const deepest = path[path.length - 1];
-                if (deepest?.meta?.region) {
-                  setFilters({ region: deepest.meta.region });
-                }
-                if (deepest?.meta?.dma) {
-                  setFilters({ dma: deepest.meta.dma });
-                }
-                if (deepest?.meta?.zip3) {
-                  setFilters({ zip3: deepest.meta.zip3 });
-                }
+                setFilters((prev) => {
+                  const next = cloneFilters(prev);
+                  if (deepest?.meta?.zip3) {
+                    next.peoplePlace.locationContext = {
+                      ...next.peoplePlace.locationContext,
+                      geoLevel: 'ZIP',
+                      detail: deepest.meta.zip3
+                    };
+                  } else if (deepest?.meta?.dma) {
+                    next.peoplePlace.locationContext = {
+                      ...next.peoplePlace.locationContext,
+                      geoLevel: 'Region',
+                      detail: deepest.meta.dma
+                    };
+                  } else if (deepest?.meta?.region) {
+                    next.peoplePlace.locationContext = {
+                      ...next.peoplePlace.locationContext,
+                      geoLevel: 'Region',
+                      detail: deepest.meta.region
+                    };
+                  }
+                  return next;
+                });
               }}
             />
           ) : null}
@@ -667,7 +2003,8 @@ const MarketRadar: React.FC = () => {
               <button
                 onClick={() => {
                   addToCart(activeSegment.segment.id);
-                  navigate('/segment-studio');
+                  recordAction(activeSegment.segment.id, 'advance');
+                  navigate('/segment-studio', { state: { filters: queryPayload } });
                 }}
                 className="w-full rounded-full bg-emerald-500 px-4 py-2 text-sm font-semibold text-slate-950 hover:bg-emerald-600"
               >
@@ -686,7 +2023,10 @@ const MarketRadar: React.FC = () => {
             items={selectionItems}
             metrics={selectionMetrics}
             ctaLabel="Move to Segment Studio"
-            onCta={() => navigate('/segment-studio')}
+            onCta={() => {
+              recordAction(cartSegmentIds, 'advance');
+              navigate('/segment-studio', { state: { filters: queryPayload } });
+            }}
             disabled={!cartSegmentIds.length}
           />
         </div>

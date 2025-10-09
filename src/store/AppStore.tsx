@@ -353,62 +353,66 @@ export const AppStoreProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       lastUpdate: now
     };
 
-    setState((prev) => {
+    setState((prev): AppStoreState => {
       const points: TelemetryPoint[] = [];
       let prevPoint: TelemetryPoint | undefined;
       for (let i = 0; i < 8; i += 1) {
         prevPoint = nextTelemetryPoint(prevPoint, campaign);
         points.push({ ...prevPoint, t: now - (7 - i) * 1000 * 60 * 6 });
       }
-      return {
-        campaigns: [campaign, ...prev.campaigns],
-        monitoring: {
-          streams: {
-            ...prev.monitoring.streams,
-            [campaign.id]: points
-          }
-        },
-        agentActions: {
-          ...prev.agentActions,
-          [campaign.id]: [
-            {
-              id: makeId(),
-              campaignId: campaign.id,
-              timestamp: now,
-              summary: 'Campaign launched from Offering Designer hand-off.',
-              lift: 0,
-              status: 'Applied',
-              details: 'Baseline telemetry initialised.'
-            }
-          ]
-        },
-        autoOptimize: {
-          ...prev.autoOptimize,
-          [campaign.id]: false
+      const campaigns: Campaign[] = [campaign, ...prev.campaigns];
+      const monitoring: Monitoring = {
+        streams: {
+          ...prev.monitoring.streams,
+          [campaign.id]: points
         }
       };
+      const action: AgentAction = {
+        id: makeId(),
+        campaignId: campaign.id,
+        timestamp: now,
+        summary: 'Campaign launched from Offering Designer hand-off.',
+        lift: 0,
+        status: 'Applied',
+        details: 'Baseline telemetry initialised.'
+      };
+      const agentActions: Record<string, AgentAction[]> = {
+        ...prev.agentActions,
+        [campaign.id]: [action]
+      };
+      const autoOptimize: Record<string, boolean> = {
+        ...prev.autoOptimize,
+        [campaign.id]: false
+      };
+      return {
+        ...prev,
+        campaigns,
+        monitoring,
+        agentActions,
+        autoOptimize
+      } as AppStoreState;
     });
 
     return campaign;
   }, []);
 
   const updateCampaign = React.useCallback((id: string, patch: Partial<Campaign>) => {
-    setState((prev) => {
-      const campaigns = prev.campaigns.map((campaign) =>
+    setState((prev): AppStoreState => {
+      const campaigns: Campaign[] = prev.campaigns.map((campaign) =>
         campaign.id === id ? { ...campaign, ...patch, lastUpdate: Date.now() } : campaign
       );
-      return { ...prev, campaigns };
+      return { ...prev, campaigns } as AppStoreState;
     });
   }, []);
 
   const toggleStatus = React.useCallback((id: string) => {
-    setState((prev) => {
-      const campaigns = prev.campaigns.map((campaign) => {
+    setState((prev): AppStoreState => {
+      const campaigns: Campaign[] = prev.campaigns.map((campaign) => {
         if (campaign.id !== id) return campaign;
-        const status = campaign.status === 'Running' ? 'Paused' : 'Running';
+        const status: Campaign['status'] = campaign.status === 'Running' ? 'Paused' : 'Running';
         return { ...campaign, status, lastUpdate: Date.now() };
       });
-      return { ...prev, campaigns };
+      return { ...prev, campaigns } as AppStoreState;
     });
   }, []);
 
