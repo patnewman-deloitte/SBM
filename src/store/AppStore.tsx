@@ -339,13 +339,14 @@ export const AppStoreProvider: React.FC<{ children: React.ReactNode }> = ({ chil
 
   const launchCampaign = React.useCallback((payload: LaunchPayload): Campaign => {
     const now = Date.now();
-    const kpis = payload.kpis ?? scoreImpactInternal(payload.channels, payload.offer);
+    const kpis: Campaign['kpis'] = payload.kpis ?? scoreImpactInternal(payload.channels, payload.offer);
+    const channels = normaliseChannels(payload.channels);
     const campaign: Campaign = {
       id: makeId(),
       name: payload.name,
       cohorts: payload.cohorts,
       status: 'Running',
-      channels: normaliseChannels(payload.channels),
+      channels,
       offer: payload.offer,
       kpis,
       agent: payload.agent,
@@ -353,59 +354,62 @@ export const AppStoreProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       lastUpdate: now
     };
 
-    setState((prev) => {
-      const points: TelemetryPoint[] = [];
-      let prevPoint: TelemetryPoint | undefined;
-      for (let i = 0; i < 8; i += 1) {
-        prevPoint = nextTelemetryPoint(prevPoint, campaign);
-        points.push({ ...prevPoint, t: now - (7 - i) * 1000 * 60 * 6 });
-      }
-      return {
-        campaigns: [campaign, ...prev.campaigns],
-        monitoring: {
-          streams: {
-            ...prev.monitoring.streams,
-            [campaign.id]: points
-          }
-        },
-        agentActions: {
-          ...prev.agentActions,
-          [campaign.id]: [
-            {
-              id: makeId(),
-              campaignId: campaign.id,
-              timestamp: now,
-              summary: 'Campaign launched from Offering Designer hand-off.',
-              lift: 0,
-              status: 'Applied',
-              details: 'Baseline telemetry initialised.'
-            }
-          ]
-        },
-        autoOptimize: {
-          ...prev.autoOptimize,
-          [campaign.id]: false
+    const points: TelemetryPoint[] = [];
+    let prevPoint: TelemetryPoint | undefined;
+    for (let i = 0; i < 8; i += 1) {
+      prevPoint = nextTelemetryPoint(prevPoint, campaign);
+      points.push({ ...prevPoint, t: now - (7 - i) * 1000 * 60 * 6 });
+    }
+
+    const nextState: AppStoreState = {
+      campaigns: [campaign, ...state.campaigns],
+      monitoring: {
+        streams: {
+          ...state.monitoring.streams,
+          [campaign.id]: points
         }
-      };
-    });
+      },
+      agentActions: {
+        ...state.agentActions,
+        [campaign.id]: [
+          {
+            id: makeId(),
+            campaignId: campaign.id,
+            timestamp: now,
+            summary: 'Campaign launched from Offering Designer hand-off.',
+            lift: 0,
+            status: 'Applied',
+            details: 'Baseline telemetry initialised.'
+          }
+        ]
+      },
+      autoOptimize: {
+        ...state.autoOptimize,
+        [campaign.id]: false
+      }
+    };
+
+    setState(nextState);
 
     return campaign;
   }, []);
 
   const updateCampaign = React.useCallback((id: string, patch: Partial<Campaign>) => {
     setState((prev) => {
-      const campaigns = prev.campaigns.map((campaign) =>
-        campaign.id === id ? { ...campaign, ...patch, lastUpdate: Date.now() } : campaign
-      );
+      const campaigns: Campaign[] = prev.campaigns.map((campaign) => {
+        if (campaign.id !== id) return campaign;
+        const next: Campaign = { ...campaign, ...patch, lastUpdate: Date.now() };
+        return next;
+      });
       return { ...prev, campaigns };
     });
   }, []);
 
   const toggleStatus = React.useCallback((id: string) => {
     setState((prev) => {
-      const campaigns = prev.campaigns.map((campaign) => {
+      const campaigns: Campaign[] = prev.campaigns.map((campaign) => {
         if (campaign.id !== id) return campaign;
-        const status = campaign.status === 'Running' ? 'Paused' : 'Running';
+        const status: Campaign['status'] = campaign.status === 'Running' ? 'Paused' : 'Running';
         return { ...campaign, status, lastUpdate: Date.now() };
       });
       return { ...prev, campaigns };
