@@ -2,7 +2,6 @@ import React from 'react';
 import { useNavigate } from 'react-router-dom';
 import BubbleChart, { BubblePoint } from '../../components/BubbleChart';
 import InfoPopover from '../../components/InfoPopover';
-import MapView, { GeoNode } from '../../components/MapView';
 import PillToggle from '../../components/PillToggle';
 import RightRail from '../../components/RightRail';
 import SegmentTile from '../../components/SegmentTile';
@@ -11,89 +10,309 @@ import { parseIntent } from '../../lib/intentParser';
 import { simulateCampaign } from '../../sim/tinySim';
 import { useGlobalStore } from '../../store/global';
 
-const geoTree: GeoNode[] = [
-  {
-    id: 'ca',
-    name: 'California',
-    value: 82,
-    meta: { region: 'west' },
-    children: [
-      {
-        id: 'sf-dma',
-        name: 'San Francisco Bay DMA',
-        value: 74,
-        meta: { dma: 'san francisco' },
-        children: [
-          { id: '941', name: 'ZIP3 941', value: 68, meta: { zip3: '941' } },
-          { id: '945', name: 'ZIP3 945', value: 72, meta: { zip3: '945' } },
-          { id: '947', name: 'ZIP3 947', value: 65, meta: { zip3: '947' } }
-        ]
-      },
-      {
-        id: 'la-dma',
-        name: 'Los Angeles DMA',
-        value: 80,
-        meta: { dma: 'los angeles' },
-        children: [
-          { id: '900', name: 'ZIP3 900', value: 76, meta: { zip3: '900' } },
-          { id: '902', name: 'ZIP3 902', value: 70, meta: { zip3: '902' } },
-          { id: '913', name: 'ZIP3 913', value: 65, meta: { zip3: '913' } }
-        ]
-      }
-    ]
-  },
-  {
-    id: 'tx',
-    name: 'Texas',
-    value: 75,
-    meta: { region: 'south' },
-    children: [
-      {
-        id: 'dal-dma',
-        name: 'Dallas-Fort Worth DMA',
-        value: 68,
-        meta: { dma: 'dallas' },
-        children: [
-          { id: '750', name: 'ZIP3 750', value: 63, meta: { zip3: '750' } },
-          { id: '752', name: 'ZIP3 752', value: 60, meta: { zip3: '752' } },
-          { id: '761', name: 'ZIP3 761', value: 58, meta: { zip3: '761' } }
-        ]
-      },
-      {
-        id: 'aus-dma',
-        name: 'Austin DMA',
-        value: 72,
-        meta: { dma: 'austin' },
-        children: [
-          { id: '786', name: 'ZIP3 786', value: 69, meta: { zip3: '786' } },
-          { id: '787', name: 'ZIP3 787', value: 74, meta: { zip3: '787' } },
-          { id: '765', name: 'ZIP3 765', value: 65, meta: { zip3: '765' } }
-        ]
-      }
-    ]
-  },
-  {
-    id: 'ny',
-    name: 'New York',
-    value: 78,
-    meta: { region: 'northeast' },
-    children: [
-      {
-        id: 'nyc-dma',
-        name: 'NYC DMA',
-        value: 82,
-        meta: { dma: 'new york' },
-        children: [
-          { id: '100', name: 'ZIP3 100', value: 80, meta: { zip3: '100' } },
-          { id: '101', name: 'ZIP3 101', value: 70, meta: { zip3: '101' } },
-          { id: '112', name: 'ZIP3 112', value: 68, meta: { zip3: '112' } }
-        ]
-      }
-    ]
-  }
+type ViewMode = 'market' | 'map';
+
+type StateMetric = {
+  code: string;
+  name: string;
+  score: number;
+  paybackMo: number;
+  promoPressure: number;
+  rivalLead: string;
+};
+
+type StateShape = {
+  code: string;
+  name: string;
+  d: string;
+  cx: number;
+  cy: number;
+  row: number;
+  col: number;
+  inset?: boolean;
+};
+
+const colorFor = (s: number) => `hsl(${160 - Math.round(s * 0.6)}, 70%, ${32 + Math.round(s * 0.12)}%)`;
+
+const tileSize = 18;
+const tileGap = 2;
+const tileOrigin = 6;
+
+const tileData: Array<{ code: string; name: string; row: number; col: number; inset?: boolean }> = [
+  { code: 'WA', name: 'Washington', row: 0, col: 0 },
+  { code: 'MT', name: 'Montana', row: 0, col: 1 },
+  { code: 'ND', name: 'North Dakota', row: 0, col: 2 },
+  { code: 'MN', name: 'Minnesota', row: 0, col: 3 },
+  { code: 'WI', name: 'Wisconsin', row: 0, col: 4 },
+  { code: 'MI', name: 'Michigan', row: 0, col: 5 },
+  { code: 'VT', name: 'Vermont', row: 0, col: 7 },
+  { code: 'NH', name: 'New Hampshire', row: 0, col: 8 },
+  { code: 'ME', name: 'Maine', row: 0, col: 9 },
+
+  { code: 'OR', name: 'Oregon', row: 1, col: 0 },
+  { code: 'ID', name: 'Idaho', row: 1, col: 1 },
+  { code: 'WY', name: 'Wyoming', row: 1, col: 2 },
+  { code: 'SD', name: 'South Dakota', row: 1, col: 3 },
+  { code: 'IA', name: 'Iowa', row: 1, col: 4 },
+  { code: 'IL', name: 'Illinois', row: 1, col: 5 },
+  { code: 'IN', name: 'Indiana', row: 1, col: 6 },
+  { code: 'OH', name: 'Ohio', row: 1, col: 7 },
+  { code: 'PA', name: 'Pennsylvania', row: 1, col: 8 },
+  { code: 'NY', name: 'New York', row: 1, col: 9 },
+  { code: 'MA', name: 'Massachusetts', row: 1, col: 10 },
+
+  { code: 'CA', name: 'California', row: 2, col: -0.2 },
+  { code: 'NV', name: 'Nevada', row: 2, col: 0.9 },
+  { code: 'UT', name: 'Utah', row: 2, col: 1.9 },
+  { code: 'CO', name: 'Colorado', row: 2, col: 2.9 },
+  { code: 'NE', name: 'Nebraska', row: 2, col: 3.9 },
+  { code: 'MO', name: 'Missouri', row: 2, col: 4.9 },
+  { code: 'KY', name: 'Kentucky', row: 2, col: 5.9 },
+  { code: 'WV', name: 'West Virginia', row: 2, col: 6.9 },
+  { code: 'VA', name: 'Virginia', row: 2, col: 7.9 },
+  { code: 'MD', name: 'Maryland', row: 2, col: 8.9 },
+  { code: 'NJ', name: 'New Jersey', row: 2, col: 9.9 },
+  { code: 'CT', name: 'Connecticut', row: 2, col: 10.6 },
+  { code: 'RI', name: 'Rhode Island', row: 2, col: 11.2 },
+
+  { code: 'AZ', name: 'Arizona', row: 3, col: 1 },
+  { code: 'NM', name: 'New Mexico', row: 3, col: 2 },
+  { code: 'KS', name: 'Kansas', row: 3, col: 3.2 },
+  { code: 'OK', name: 'Oklahoma', row: 3, col: 4.2 },
+  { code: 'AR', name: 'Arkansas', row: 3, col: 5.2 },
+  { code: 'TN', name: 'Tennessee', row: 3, col: 6.2 },
+  { code: 'NC', name: 'North Carolina', row: 3, col: 7.2 },
+  { code: 'SC', name: 'South Carolina', row: 3, col: 8.2 },
+  { code: 'DE', name: 'Delaware', row: 3, col: 9.1 },
+
+  { code: 'TX', name: 'Texas', row: 4, col: 2.7 },
+  { code: 'LA', name: 'Louisiana', row: 4, col: 3.7 },
+  { code: 'MS', name: 'Mississippi', row: 4, col: 4.7 },
+  { code: 'AL', name: 'Alabama', row: 4, col: 5.7 },
+  { code: 'GA', name: 'Georgia', row: 4, col: 6.7 },
+  { code: 'FL', name: 'Florida', row: 4.4, col: 7.7 },
+
+  { code: 'AK', name: 'Alaska', row: 5.8, col: 0, inset: true },
+  { code: 'HI', name: 'Hawaii', row: 5.8, col: 1.6, inset: true }
 ];
 
-type ViewMode = 'market' | 'map' | 'compare';
+const usStates: StateShape[] = tileData.map(({ code, name, row, col, inset }) => {
+  const size = inset ? tileSize * 0.8 : tileSize;
+  const x = tileOrigin + col * (tileSize + tileGap);
+  const y = tileOrigin + row * (tileSize + tileGap);
+  return {
+    code,
+    name,
+    d: `M${x} ${y}h${size}v${size}h-${size}Z`,
+    cx: x + size / 2,
+    cy: y + size / 2,
+    row,
+    col,
+    inset
+  };
+});
+
+const maxCol = Math.max(...usStates.map((state) => state.col));
+const maxRow = Math.max(...usStates.map((state) => state.row));
+const svgWidth = tileOrigin * 2 + (maxCol + 1) * (tileSize + tileGap);
+const svgHeight = tileOrigin * 2 + (maxRow + 1) * (tileSize + tileGap);
+
+const rivalNames = ['BetaTel', 'CableCo', 'MetroNet', 'FastWave', 'OmniWireless', 'NextMobile'];
+
+const codeHash = (code: string) => {
+  let hash = 0;
+  for (let i = 0; i < code.length; i += 1) {
+    hash = (hash * 31 + code.charCodeAt(i)) & 0xffff;
+  }
+  return hash;
+};
+
+function getStateMetrics(): Record<string, StateMetric> {
+  const metrics: Record<string, StateMetric> = {};
+  for (const shape of usStates) {
+    const hash = codeHash(shape.code);
+    const score = hash % 101;
+    const paybackMo = 4 + ((hash >> 2) % 70) / 10;
+    const promoPressure = 20 + (hash % 70);
+    const rivalLead = rivalNames[hash % rivalNames.length];
+    metrics[shape.code] = {
+      code: shape.code,
+      name: shape.name,
+      score,
+      paybackMo,
+      promoPressure,
+      rivalLead
+    };
+  }
+  return metrics;
+}
+
+type UsChoroplethProps = {
+  onChangeSelected?: (codes: string[]) => void;
+};
+
+const clamp = (value: number, min: number, max: number) => Math.min(Math.max(value, min), max);
+
+const UsChoropleth: React.FC<UsChoroplethProps> = ({ onChangeSelected }) => {
+  const metrics = React.useMemo(() => getStateMetrics(), []);
+  const [selected, setSelected] = React.useState<string[]>([]);
+  const [tip, setTip] = React.useState<{ metric: StateMetric | null; x: number; y: number; visible: boolean }>({
+    metric: null,
+    x: 0,
+    y: 0,
+    visible: false
+  });
+  const [note, setNote] = React.useState<string | null>(null);
+  const wrapperRef = React.useRef<HTMLDivElement | null>(null);
+  const pathRefs = React.useRef<(SVGPathElement | null)[]>([]);
+  const columnCount = Math.round(maxCol + 2);
+
+  const toggleState = (code: string) => {
+    setSelected((prev) => {
+      const exists = prev.includes(code);
+      const next = exists ? prev.filter((item) => item !== code) : [...prev, code];
+      onChangeSelected?.(next);
+      return next;
+    });
+  };
+
+  const showTip = (metric: StateMetric, clientX: number, clientY: number) => {
+    if (!wrapperRef.current) return;
+    const bounds = wrapperRef.current.getBoundingClientRect();
+    const localX = clientX - bounds.left;
+    const localY = clientY - bounds.top;
+    const x = clamp(localX + 16, 8, bounds.width - 172);
+    const y = clamp(localY + 16, 8, bounds.height - 96);
+    setTip({ metric, x, y, visible: true });
+  };
+
+  const hideTip = () => {
+    setTip((prev) => ({ ...prev, visible: false }));
+  };
+
+  const handleFocus = (metric: StateMetric, index: number) => {
+    const element = pathRefs.current[index];
+    if (!element || !wrapperRef.current) {
+      setTip({ metric, x: 12, y: 12, visible: true });
+      return;
+    }
+    const rect = element.getBoundingClientRect();
+    const bounds = wrapperRef.current.getBoundingClientRect();
+    const centerX = rect.left - bounds.left + rect.width / 2;
+    const centerY = rect.top - bounds.top + rect.height / 2;
+    const x = clamp(centerX, 8, bounds.width - 172);
+    const y = clamp(centerY, 8, bounds.height - 96);
+    setTip({ metric, x, y, visible: true });
+  };
+
+  const focusByOffset = (current: number, delta: number) => {
+    const total = usStates.length;
+    let target = (current + delta + total) % total;
+    pathRefs.current[target]?.focus();
+  };
+
+  return (
+    <div
+      ref={wrapperRef}
+      data-testid="mr-map-root"
+      className="relative rounded-2xl border border-slate-700 bg-slate-900/40 p-4 shadow-xl sm:p-6"
+    >
+      <div className="mb-3 flex items-center justify-between">
+        <div>
+          <h3 className="text-base font-semibold text-white">US competitive heatmap</h3>
+          <p className="text-xs text-slate-400">Hover states to inspect intensity and rivals.</p>
+        </div>
+        <div className="relative text-right text-xs text-slate-300" data-testid="mr-map-legend">
+          <span className="mb-1 block text-[10px] uppercase tracking-wide text-slate-400">Competitive intensity</span>
+          <div className="flex items-center gap-2">
+            <span>Low</span>
+            <div className="h-2 w-24 rounded-full bg-gradient-to-r from-emerald-700 via-teal-500 to-teal-300" />
+            <span>High</span>
+          </div>
+        </div>
+      </div>
+      <svg
+        role="img"
+        aria-label="US competitive heatmap"
+        viewBox={`0 0 ${svgWidth} ${svgHeight}`}
+        className="h-full w-full"
+      >
+        {usStates.map((state, index) => {
+          const metric = metrics[state.code];
+          const isSelected = selected.includes(state.code);
+          return (
+            <path
+              key={state.code}
+              ref={(node) => {
+                pathRefs.current[index] = node;
+              }}
+              d={state.d}
+              tabIndex={0}
+              aria-label={state.name}
+              data-testid={`mr-map-${state.code}`}
+              fill={colorFor(metric.score)}
+              stroke={isSelected ? '#34d399' : 'rgba(148, 163, 184, 0.5)'}
+              strokeWidth={isSelected ? 2 : 1}
+              className={`cursor-pointer transition duration-150 ease-out hover:brightness-110 focus:outline-none focus:ring-2 focus:ring-emerald-400/60 ${
+                isSelected ? 'stroke-[2]' : ''
+              }`}
+              onMouseEnter={(event) => showTip(metric, event.clientX, event.clientY)}
+              onMouseMove={(event) => showTip(metric, event.clientX, event.clientY)}
+              onMouseLeave={hideTip}
+              onFocus={() => handleFocus(metric, index)}
+              onBlur={hideTip}
+              onClick={() => toggleState(state.code)}
+              onKeyDown={(event) => {
+                if (event.key === 'Enter' || event.key === ' ') {
+                  event.preventDefault();
+                  toggleState(state.code);
+                } else if (event.key === 'ArrowRight') {
+                  event.preventDefault();
+                  focusByOffset(index, 1);
+                } else if (event.key === 'ArrowLeft') {
+                  event.preventDefault();
+                  focusByOffset(index, -1);
+                } else if (event.key === 'ArrowDown') {
+                  event.preventDefault();
+                  focusByOffset(index, columnCount);
+                } else if (event.key === 'ArrowUp') {
+                  event.preventDefault();
+                  focusByOffset(index, -columnCount);
+                } else if (event.key === 'Escape') {
+                  hideTip();
+                }
+              }}
+              onDoubleClick={() => {
+                setNote(`${state.name} • DMA drill-down coming soon`);
+                setTimeout(() => setNote(null), 2500);
+              }}
+            />
+          );
+        })}
+        <text x={tileOrigin} y={svgHeight - 4} className="fill-slate-500 text-[8px]">
+          AK/HI scaled & translated for preview
+        </text>
+      </svg>
+      {tip.visible && tip.metric ? (
+        <div
+          data-testid="mr-map-tip"
+          className="pointer-events-none absolute max-w-xs rounded-md border border-slate-700 bg-slate-800/95 px-3 py-2 text-xs text-slate-100 shadow-lg"
+          style={{ left: tip.x, top: tip.y }}
+        >
+          <p className="font-semibold text-white">{tip.metric.name}</p>
+          <p>Payback improvement potential: {tip.metric.paybackMo.toFixed(1)} mo</p>
+          <p>Promo intensity: {tip.metric.promoPressure} index</p>
+          <p>Primary rival lead: {tip.metric.rivalLead}</p>
+        </div>
+      ) : null}
+      {note ? (
+        <div className="mt-4 rounded border border-emerald-500/40 bg-emerald-500/10 px-3 py-2 text-xs text-emerald-200">
+          {note}
+        </div>
+      ) : null}
+    </div>
+  );
+};
 
 export type Filters = {
   peoplePlace: {
@@ -723,7 +942,7 @@ const MarketRadar: React.FC = () => {
             <span>Use filters or the intent bar to zero in on the customers you care most about.</span>
           </div>
           <div className="flex items-start gap-2">
-            <InfoPopover title="Visualize opportunity" description="Bubble, map, and compare views highlight scale, payback, and coverage." />
+            <InfoPopover title="Visualize opportunity" description="Bubble and map views highlight scale, payback, and coverage." />
             <span>Switch views to understand opportunity sizing and geographic hot spots.</span>
           </div>
           <div className="flex items-start gap-2">
@@ -1979,13 +2198,12 @@ const MarketRadar: React.FC = () => {
         <section className="flex flex-col gap-6">
           <div className="flex items-center justify-between">
             <h2 className="text-lg font-semibold text-white">Choose your view</h2>
-            <InfoPopover title="View switcher" description="Toggle perspectives to validate scale, geography, or KPI comparisons." />
+            <InfoPopover title="View switcher" description="Toggle perspectives to validate scale or geographic hotspots." />
           </div>
           <PillToggle
             options={[
               { id: 'market', label: 'Market View' },
-              { id: 'map', label: 'Competitive Map' },
-              { id: 'compare', label: 'Compare' }
+              { id: 'map', label: 'Competitive Map' }
             ]}
             value={view}
             onChange={(value) => setView(value)}
@@ -2027,52 +2245,12 @@ const MarketRadar: React.FC = () => {
             </>
           ) : null}
           {view === 'map' ? (
-            <MapView
-              root={geoTree}
-              onSelectRegion={(path) => {
-                const deepest = path[path.length - 1];
-                if (!deepest) return;
-                if (deepest.meta?.zip3) {
-                  updateSection('peoplePlace', (prev) => ({
-                    ...prev,
-                    locationContext: { ...prev.locationContext, geoLevel: 'ZIP' },
-                  }));
-                } else if (deepest.meta?.dma) {
-                  updateSection('peoplePlace', (prev) => ({
-                    ...prev,
-                    locationContext: { ...prev.locationContext, geoLevel: 'State' },
-                  }));
-                } else if (deepest.meta?.region) {
-                  updateSection('peoplePlace', (prev) => ({
-                    ...prev,
-                    locationContext: { ...prev.locationContext, geoLevel: 'Region' },
-                  }));
-                }
+            <UsChoropleth
+              onChangeSelected={(codes) => {
+                // reserved for future selection sync
+                void codes;
               }}
             />
-          ) : null}
-          {view === 'compare' ? (
-            <div className="card flex flex-col gap-4 border border-slate-800 p-4">
-              <div className="flex items-center justify-between">
-                <h3 className="text-lg font-semibold text-white">Compare cohorts</h3>
-                <InfoPopover title="Comparison table" description="Line up short-listed cohorts before you commit to a path." />
-              </div>
-              <p className="text-sm text-slate-300">
-                Quickly compare top cohorts across payback, 12-mo GM, and projected net adds. Use this view when prioritizing a short list.
-              </p>
-              <div className="grid grid-cols-3 gap-3 text-sm">
-                <span className="text-xs uppercase tracking-wide text-slate-400">Cohort</span>
-                <span className="text-xs uppercase tracking-wide text-slate-400">Payback</span>
-                <span className="text-xs uppercase tracking-wide text-slate-400">12-mo GM</span>
-                {rankedSegments.map(({ segment, sim }) => (
-                  <React.Fragment key={`compare-${segment.id}`}>
-                    <span className="font-semibold text-white">{segment.name}</span>
-                    <span>{typeof sim.payback === 'number' ? `${sim.payback} mo` : sim.payback}</span>
-                    <span>${sim.gm12.toLocaleString()}</span>
-                  </React.Fragment>
-                ))}
-              </div>
-            </div>
           ) : null}
         </section>
         {activeSegment ? (
@@ -2128,3 +2306,10 @@ const MarketRadar: React.FC = () => {
 };
 
 export default MarketRadar;
+
+// QA checklist
+// - "Compare" tab is removed; only "Market View" and "Competitive Map" remain.
+// - Competitive Map shows a responsive US SVG heatmap with hover tooltips.
+// - Colors reflect score via a continuous gradient; legend present.
+// - Hover and keyboard focus work; click/Enter toggles selection.
+// - No new dependencies; build passes.
