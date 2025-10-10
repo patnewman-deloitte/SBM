@@ -6,6 +6,7 @@ import SelectionTray from '../../components/SelectionTray';
 import SubsegmentTile from '../../components/SubsegmentTile';
 import { simulateAudience } from '../../sim/tinySim';
 import { useGlobalStore } from '../../store/global';
+import type { Segment } from '../../store/global';
 
 const defaultMix = {
   'ch-search': 0.32,
@@ -28,17 +29,23 @@ const SegmentStudio: React.FC = () => {
 
   const offer = offers[1] ?? offers[0];
 
-  const sourceCohorts = cartSegmentIds.map((id) => segments.find((s) => s.id === id)).filter(Boolean);
+  const sourceCohorts = React.useMemo(
+    () =>
+      cartSegmentIds
+        .map((id) => segments.find((s) => s.id === id))
+        .filter((segment): segment is Segment => Boolean(segment)),
+    [cartSegmentIds, segments]
+  );
 
   const subsegments = React.useMemo(() => {
     return sourceCohorts.flatMap((segment) => {
-      const micros = microSegmentsByParent[segment!.id] ?? [];
+      const micros = microSegmentsByParent[segment.id] ?? [];
       const total = micros.reduce((sum, micro) => sum + micro.sizeShare, 0) || 1;
       return micros.map((micro, index) => {
         const normalized = { ...micro, sizeShare: micro.sizeShare / total };
         const sim = simulateAudience({
           micro: normalized,
-          segmentSize: segment!.size,
+          segmentSize: segment.size,
           offer,
           channelMix: defaultMix,
           assumptions,
@@ -148,13 +155,13 @@ const SegmentStudio: React.FC = () => {
             </div>
             <div className="mt-2 space-y-2">
               {sourceCohorts.map((segment) => (
-                <div key={segment!.id} className="rounded-lg border border-slate-800 bg-slate-900/70 p-3 text-xs text-slate-300">
+                <div key={segment.id} className="rounded-lg border border-slate-800 bg-slate-900/70 p-3 text-xs text-slate-300">
                   <div className="flex items-center justify-between">
-                    <p className="text-sm font-semibold text-white">{segment!.name}</p>
+                    <p className="text-sm font-semibold text-white">{segment.name}</p>
                     <InfoPopover title="Cohort details" description="Size and trait summary for this cohort." placement="left" />
                   </div>
-                  <p>{segment!.size.toLocaleString()} households</p>
-                  <p>Primary traits: {segment!.traits.slice(0, 2).join(', ')}</p>
+                  <p>{segment.size.toLocaleString()} households</p>
+                  <p>Primary traits: {segment.traits.slice(0, 2).join(', ')}</p>
                 </div>
               ))}
               {!sourceCohorts.length ? <p className="text-xs text-slate-500">No cohorts yet—head back to Market Radar.</p> : null}
