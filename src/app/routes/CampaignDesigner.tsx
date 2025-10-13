@@ -6,10 +6,13 @@ import KpiTile from '../../components/KpiTile';
 import SelectionTray from '../../components/SelectionTray';
 import Info from '../../components/Info';
 import { useToast } from '../../components/ToastProvider';
+import PlaybookPreview from '../../components/PlaybookPreview';
 import { simulateCampaign, AudienceSimInput } from '../../sim/tinySim';
 import { useGlobalStore } from '../../store/global';
 import type { Assumptions, Channel, MicroSegment, OfferArchetype, Segment } from '../../store/global';
 import { ChannelKey, useAppStore } from '../../store/AppStore';
+import { useAppState } from '../../appState';
+import { execAPI } from '../../mocks';
 
 const channelKeyList: ChannelKey[] = ['Search', 'Social', 'Email', 'Retail', 'Field'];
 const channelIdToKey: Record<string, ChannelKey> = {
@@ -634,6 +637,9 @@ const CampaignDesigner: React.FC = () => {
   const navigate = useNavigate();
   const { campaigns: liveCampaigns, launchCampaign, scoreImpact } = useAppStore();
   const { pushToast } = useToast();
+  const { mode, selectedSegment, setPlanId } = useAppState();
+
+  const modeLabel = React.useMemo(() => mode.charAt(0).toUpperCase() + mode.slice(1), [mode]);
 
   const [launchOpen, setLaunchOpen] = React.useState(false);
 
@@ -887,6 +893,68 @@ const CampaignDesigner: React.FC = () => {
     };
   }, [campaign.audienceIds, campaign.offerByAudience, microMap, offers]);
 
+  const previewSegment = React.useMemo(() => {
+    if (aggregatedCohorts.length) {
+      const top = aggregatedCohorts[0];
+      return { id: top.id, name: top.name, size: top.size };
+    }
+    return selectedSegment;
+  }, [aggregatedCohorts, selectedSegment]);
+
+  const previewDraft = React.useMemo(() => {
+    if (!simResults) return undefined;
+    const payback =
+      typeof simResults.blended.paybackMonths === 'number'
+        ? `${simResults.blended.paybackMonths} mo`
+        : simResults.blended.paybackMonths;
+    return {
+      summary: `Finalize the ${modeLabel} plan and prep the launch handoff.`,
+      actions: [
+        `Budget $${campaign.budgetTotal.toLocaleString()} across ${aggregatedCohorts.length || 0} cohorts.`,
+        `Lock ${winning ? winning.label : 'current scenario'} before exporting.`,
+        'Push to Execution Hub for activation and monitoring.'
+      ],
+      kpiImpact: [
+        { id: 'payback', label: 'Payback', value: payback, helper: 'Simulated' },
+        { id: 'gm', label: '12-mo GM', value: `$${simResults.blended.gm12m.toLocaleString()}`, helper: 'Modeled margin' },
+        { id: 'net', label: 'Net adds', value: simResults.blended.netAdds.toLocaleString(), helper: 'Projected lift' }
+      ]
+    };
+  }, [aggregatedCohorts.length, campaign.budgetTotal, modeLabel, simResults, winning]);
+
+  const previewGuardrails = React.useMemo(() => {
+    if (!simResults) return undefined;
+    const cacLimit = campaign.guardrails.cacCeiling;
+    const paybackTarget = campaign.guardrails.paybackTarget;
+    const cacValue = simResults.blended.breakdown.cac;
+    const paybackValue = simResults.blended.paybackMonths;
+    const marginValue = typeof simResults.blended.marginPct === 'number'
+      ? simResults.blended.marginPct
+      : Number.parseFloat(String(simResults.blended.marginPct ?? '0'));
+    return [
+      {
+        id: 'cac',
+        label: `CAC $${Math.round(cacValue).toLocaleString()}`,
+        passed: cacLimit ? cacValue <= cacLimit : true
+      },
+      {
+        id: 'payback',
+        label: `Payback ${typeof paybackValue === 'number' ? `${paybackValue} mo` : paybackValue}`,
+        passed:
+          typeof paybackValue === 'number'
+            ? paybackTarget
+              ? paybackValue <= paybackTarget
+              : paybackValue <= 12
+            : true
+      },
+      {
+        id: 'margin',
+        label: `Margin ${Number.isFinite(marginValue) ? `${Math.round(marginValue)}%` : simResults.blended.marginPct}`,
+        passed: Number.isFinite(marginValue) ? marginValue >= 25 : true
+      }
+    ];
+  }, [campaign.guardrails.cacCeiling, campaign.guardrails.paybackTarget, simResults]);
+
   const previewModel = React.useMemo(
     () => selectPreviewModel(formState, aggregatedOffer),
     [aggregatedOffer, formState]
@@ -1005,7 +1073,7 @@ const CampaignDesigner: React.FC = () => {
     URL.revokeObjectURL(url);
   }, [campaign.audienceIds, campaign.budgetTotal, microMap, segmentMap, simResults, winning]);
 
-  const confirmLaunch = React.useCallback(() => {
+  const confirmLaunch = React.useCallback(async () => {
     if (!simResults || !aggregatedCohorts.length) return;
     const heuristics = scoreImpact(aggregatedChannels, {
       price: aggregatedOffer.price,
@@ -1043,15 +1111,33 @@ const CampaignDesigner: React.FC = () => {
     });
     setLaunchOpen(false);
     pushToast({ description: 'Campaign launched to Execution Hub.', variant: 'success' });
+    try {
+      const response = await execAPI.push({
+        mode,
+        plan: {
+          id: launched.id,
+          name: launched.name,
+          cohorts: aggregatedCohorts,
+          channels: aggregatedChannels,
+          offer: aggregatedOffer
+        }
+      });
+      setPlanId(response.planId ?? launched.id);
+    } catch (error) {
+      console.warn('Failed to sync launch with execAPI', error);
+      setPlanId(launched.id);
+    }
     navigate('/execution-hub', { state: { selectedCampaignId: launched.id, fromLaunch: true } });
   }, [
     aggregatedChannels,
     aggregatedCohorts,
     aggregatedOffer,
     launchCampaign,
+    mode,
     navigate,
     pushToast,
     scoreImpact,
+    setPlanId,
     simResults,
     winning
   ]);
@@ -1062,7 +1148,7 @@ const CampaignDesigner: React.FC = () => {
       <div className="card border border-emerald-500/20 bg-slate-900/70 p-5">
         <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
           <div>
-            <h1 className="text-2xl font-semibold text-white">Offering & Campaign Designer</h1>
+            <h1 className="text-2xl font-semibold text-white">Offer & Campaign Designer</h1>
             <p className="mt-2 max-w-2xl text-sm text-slate-300">
               Design offers, channel mixes, and budgets for selected micro-segments, then simulate impact before exporting a leadership-ready summary.
             </p>
@@ -1802,6 +1888,12 @@ const CampaignDesigner: React.FC = () => {
           />
         </div>
         <div className="mt-8 space-y-4 lg:mt-0 lg:sticky lg:top-6">
+          <PlaybookPreview
+            mode={mode}
+            selectedSegment={previewSegment}
+            draftPlan={previewDraft}
+            guardrails={previewGuardrails}
+          />
           <div className="flex items-center justify-between rounded-xl border border-slate-800 bg-slate-900/70 px-3 py-2 text-xs text-slate-300">
             <label className="inline-flex items-center gap-2">
               <input

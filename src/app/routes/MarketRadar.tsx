@@ -4,11 +4,13 @@ import BubbleChart, { BubblePoint } from '../../components/BubbleChart';
 import InfoPopover from '../../components/InfoPopover';
 import PillToggle from '../../components/PillToggle';
 import RightRail from '../../components/RightRail';
+import PlaybookPreview from '../../components/PlaybookPreview';
 import SegmentTile from '../../components/SegmentTile';
 import SelectionTray from '../../components/SelectionTray';
 import { parseIntent } from '../../lib/intentParser';
 import { simulateCampaign } from '../../sim/tinySim';
 import { useGlobalStore } from '../../store/global';
+import { Mode, useAppState } from '../../appState';
 
 type ViewMode = 'market' | 'map';
 
@@ -37,6 +39,167 @@ const colorFor = (s: number) => `hsl(${160 - Math.round(s * 0.6)}, 70%, ${32 + M
 const tileSize = 18;
 const tileGap = 2;
 const tileOrigin = 6;
+
+type HeroKpi = { id: string; label: string; value: string; helper?: string };
+
+const modeMeta: Record<Mode, { blurb: string; hero: HeroKpi[] }> = {
+  acquire: {
+    blurb: 'Spot greenfield demand and fill the top of the lifecycle with net-new households.',
+    hero: [
+      { id: 'tam', label: 'TAM in scope', value: '1.8M HHs' },
+      { id: 'reach', label: 'Reachable %', value: '68%' },
+      { id: 'cvr', label: 'Expected CVR', value: '3.4%' },
+      { id: 'payback', label: 'CAC payback', value: '8.5 mo' },
+      { id: 'adds', label: 'Net adds', value: '+42k' }
+    ]
+  },
+  grow: {
+    blurb: 'Find expansion-ready cohorts to deepen relationships and lift value.',
+    hero: [
+      { id: 'eligible', label: 'Eligible base', value: '940k HHs' },
+      { id: 'arpu', label: 'Offerable ARPU lift', value: '+$5.20' },
+      { id: 'ltv', label: 'LTV delta', value: '+$210' },
+      { id: 'cannibal', label: 'Cannibalization risk', value: '12%' },
+      { id: 'take', label: 'Expected take rate', value: '24%' }
+    ]
+  },
+  retain: {
+    blurb: 'Identify churn exposure and prioritize save motions with highest impact.',
+    hero: [
+      { id: 'risk', label: 'At-risk count', value: '210k HHs' },
+      { id: 'exposure', label: 'Risk exposure $', value: '$86M' },
+      { id: 'save-prob', label: 'Save probability', value: '62%' },
+      { id: 'cost-vs-ltv', label: 'Cost to save vs LTV', value: '0.38x' },
+      { id: 'saves', label: 'Expected saves', value: '39k' }
+    ]
+  }
+};
+
+const modeIntent: Record<Mode, string> = {
+  acquire: 'Winnable micro-markets (intent x competition).',
+  grow: 'Upsell/cross-sell pockets (usage gaps x fit).',
+  retain: 'Churn risk hotspots (severity x $ at risk).'
+};
+
+type RadarSignal = {
+  id: string;
+  mode: Mode;
+  title: string;
+  score: number;
+  change: string;
+  drivers: string[];
+  cohortId: string;
+  cohortName: string;
+  cohortSize: number;
+};
+
+const radarSignals: RadarSignal[] = [
+  {
+    id: 'sig-acq-1',
+    mode: 'acquire',
+    title: 'Digital doorbusters',
+    score: 86,
+    change: '+4.2 index w/w',
+    drivers: ['Intent surge', 'Promo gap', 'Device trade-up'],
+    cohortId: 'seg-value-seekers',
+    cohortName: 'Value Seekers',
+    cohortSize: 520_000
+  },
+  {
+    id: 'sig-acq-2',
+    mode: 'acquire',
+    title: 'Switch-ready prepaid',
+    score: 82,
+    change: '+3.1 index w/w',
+    drivers: ['Promo fatigue', 'Coverage boost'],
+    cohortId: 'seg-switch-prepaid',
+    cohortName: 'Switch-Prone Prepaid',
+    cohortSize: 340_000
+  },
+  {
+    id: 'sig-acq-3',
+    mode: 'acquire',
+    title: 'Streaming climbers',
+    score: 79,
+    change: '+2.4 index w/w',
+    drivers: ['5G demand', 'Content bundles'],
+    cohortId: 'seg-urban-streamers',
+    cohortName: 'Urban Streamers',
+    cohortSize: 470_000
+  },
+  {
+    id: 'sig-grow-1',
+    mode: 'grow',
+    title: 'Bundle expansion pockets',
+    score: 83,
+    change: '+2.7 index w/w',
+    drivers: ['High bundle propensity', 'Accessory attach'],
+    cohortId: 'seg-family-bundlers',
+    cohortName: 'Family Bundlers',
+    cohortSize: 260_000
+  },
+  {
+    id: 'sig-grow-2',
+    mode: 'grow',
+    title: 'Fiber upsell momentum',
+    score: 78,
+    change: '+1.9 index w/w',
+    drivers: ['Speed demand', 'Network headroom'],
+    cohortId: 'seg-urban-streamers',
+    cohortName: 'Urban Streamers',
+    cohortSize: 470_000
+  },
+  {
+    id: 'sig-grow-3',
+    mode: 'grow',
+    title: 'Small biz boosters',
+    score: 75,
+    change: '+1.6 index w/w',
+    drivers: ['Support gaps', 'BYOD ready'],
+    cohortId: 'seg-smallbiz-byod',
+    cohortName: 'Small Biz BYOD',
+    cohortSize: 120_000
+  },
+  {
+    id: 'sig-retain-1',
+    mode: 'retain',
+    title: 'High-value churn watch',
+    score: 81,
+    change: '+2.3 index w/w',
+    drivers: ['Service friction', 'Rival promo lift'],
+    cohortId: 'seg-premium-loyal',
+    cohortName: 'Premium Network Loyalists',
+    cohortSize: 310_000
+  },
+  {
+    id: 'sig-retain-2',
+    mode: 'retain',
+    title: 'Aging equipment risk',
+    score: 77,
+    change: '+1.8 index w/w',
+    drivers: ['Device fatigue', 'Service calls'],
+    cohortId: 'seg-rural-seniors',
+    cohortName: 'Rural Seniors',
+    cohortSize: 190_000
+  },
+  {
+    id: 'sig-retain-3',
+    mode: 'retain',
+    title: 'Value erosion watch',
+    score: 74,
+    change: '+1.5 index w/w',
+    drivers: ['Price sensitivity', 'Competitive encroachment'],
+    cohortId: 'seg-value-seekers',
+    cohortName: 'Value Seekers',
+    cohortSize: 520_000
+  }
+];
+
+const modeLabel: Record<Mode, string> = {
+  acquire: 'Acquire',
+  grow: 'Grow',
+  retain: 'Retain'
+};
 
 const tileData: Array<{ code: string; name: string; row: number; col: number; inset?: boolean }> = [
   { code: 'WA', name: 'Washington', row: 0, col: 0 },
@@ -152,6 +315,10 @@ type UsChoroplethProps = {
 };
 
 const clamp = (value: number, min: number, max: number) => Math.min(Math.max(value, min), max);
+
+const toTitle = (value: string) => value.charAt(0).toUpperCase() + value.slice(1);
+
+const formatNumber = (value: number) => value.toLocaleString('en-US');
 
 const UsChoropleth: React.FC<UsChoroplethProps> = ({ onChangeSelected }) => {
   const metrics = React.useMemo(() => getStateMetrics(), []);
@@ -466,6 +633,7 @@ const MarketRadar: React.FC = () => {
   const removeFromCart = useGlobalStore((s) => s.removeSegmentFromCart);
   const setActiveSegment = useGlobalStore((s) => s.setActiveSegment);
   const activeSegmentId = useGlobalStore((s) => s.activeSegmentId);
+  const { mode, selectedSegment, setSelectedSegment, setStep } = useAppState();
 
   const [view, setView] = React.useState<ViewMode>('market');
   const [command, setCommand] = React.useState('');
@@ -479,6 +647,82 @@ const MarketRadar: React.FC = () => {
     externalSwitchTriggers: true,
     competitiveEnvironment: true,
   });
+
+  const segmentLookup = React.useMemo(() => {
+    const map = new Map<string, { id: string; name: string; size: number }>();
+    segments.forEach((segment) => {
+      map.set(segment.id, { id: segment.id, name: segment.name, size: segment.size });
+    });
+    return map;
+  }, [segments]);
+
+  const [lens, setLens] = React.useState<Mode>(mode);
+  const filteredSignals = React.useMemo(() => radarSignals.filter((signal) => signal.mode === lens), [lens]);
+  const [selectedSignalId, setSelectedSignalId] = React.useState<string | undefined>(() =>
+    filteredSignals.length ? filteredSignals[0].id : undefined,
+  );
+
+  React.useEffect(() => {
+    setLens(mode);
+  }, [mode]);
+
+  React.useEffect(() => {
+    if (!filteredSignals.length) {
+      if (selectedSignalId !== undefined) {
+        setSelectedSignalId(undefined);
+      }
+      return;
+    }
+    if (!selectedSignalId || !filteredSignals.some((signal) => signal.id === selectedSignalId)) {
+      setSelectedSignalId(filteredSignals[0].id);
+    }
+  }, [filteredSignals, selectedSignalId]);
+
+  const activeSignal = React.useMemo(
+    () => filteredSignals.find((signal) => signal.id === selectedSignalId),
+    [filteredSignals, selectedSignalId],
+  );
+
+  const selectSignal = React.useCallback(
+    (signal: RadarSignal) => {
+      setSelectedSignalId(signal.id);
+      const match = segmentLookup.get(signal.cohortId);
+      const payload = match ?? { id: signal.cohortId, name: signal.cohortName, size: signal.cohortSize };
+      setSelectedSegment(payload);
+    },
+    [segmentLookup, setSelectedSegment],
+  );
+
+  const handleExportToStudio = React.useCallback(() => {
+    if (!activeSignal) return;
+    const match = segmentLookup.get(activeSignal.cohortId);
+    const payload = match ?? { id: activeSignal.cohortId, name: activeSignal.cohortName, size: activeSignal.cohortSize };
+    setSelectedSegment(payload);
+    setStep(2);
+    navigate('/segment-studio');
+  }, [activeSignal, navigate, segmentLookup, setSelectedSegment, setStep]);
+
+  React.useEffect(() => {
+    if (!activeSignal) return;
+    const match = segmentLookup.get(activeSignal.cohortId);
+    const payload = match ?? { id: activeSignal.cohortId, name: activeSignal.cohortName, size: activeSignal.cohortSize };
+    if (!selectedSegment || selectedSegment.id === payload.id) {
+      if (!selectedSegment || selectedSegment.name !== payload.name || selectedSegment.size !== payload.size) {
+        setSelectedSegment(payload);
+      }
+    }
+  }, [activeSignal, segmentLookup, selectedSegment, setSelectedSegment]);
+
+  const hero = modeMeta[mode];
+  const intentCopy = modeIntent[lens];
+  const activeSignalCohort = React.useMemo(() => {
+    if (!activeSignal) return undefined;
+    return segmentLookup.get(activeSignal.cohortId) ?? {
+      id: activeSignal.cohortId,
+      name: activeSignal.cohortName,
+      size: activeSignal.cohortSize
+    };
+  }, [activeSignal, segmentLookup]);
 
   const mergeFilterDefaults = React.useCallback((partial?: Partial<Filters>): Filters => ({
     peoplePlace: {
@@ -686,15 +930,17 @@ const MarketRadar: React.FC = () => {
     (segmentId: string) => {
       addToCart(segmentId);
       console.log('advance:segment', { segmentId, filters: filtersQuery });
+      setStep(2);
       navigate('/segment-studio', { state: { filters: filtersQuery } });
     },
-    [addToCart, filtersQuery, navigate],
+    [addToCart, filtersQuery, navigate, setStep],
   );
 
   const advanceSelection = React.useCallback(() => {
     console.log('advance:selection', { segmentIds: cartSegmentIds, filters: filtersQuery });
+    setStep(2);
     navigate('/segment-studio', { state: { filters: filtersQuery } });
-  }, [cartSegmentIds, filtersQuery, navigate]);
+  }, [cartSegmentIds, filtersQuery, navigate, setStep]);
 
   const computeSegmentSim = React.useCallback(
     (segmentId: string) => {
@@ -846,6 +1092,61 @@ const MarketRadar: React.FC = () => {
     }
   }, [activeSegmentId, rankedSegments, setActiveSegment]);
 
+  React.useEffect(() => {
+    if (!activeSegment) return;
+    const next = {
+      id: activeSegment.segment.id,
+      name: activeSegment.segment.name,
+      size: activeSegment.segment.size
+    };
+    if (!selectedSegment || selectedSegment.id === next.id) {
+      if (!selectedSegment || selectedSegment.name !== next.name || selectedSegment.size !== next.size) {
+        setSelectedSegment(next);
+      }
+    }
+  }, [activeSegment, selectedSegment, setSelectedSegment]);
+
+  const previewDraft = React.useMemo(() => {
+    if (!activeSegment) return undefined;
+    const { segment, sim } = activeSegment;
+    const payback = typeof sim.payback === 'number' ? `${sim.payback} mo` : sim.payback;
+    return {
+      summary: `Surface ${segment.name} for a ${toTitle(mode)} push into the lifecycle.`,
+      actions: [
+        `Advance ${(segment.size * 0.18).toLocaleString(undefined, { maximumFractionDigits: 0 })} households into Segment Studio.`,
+        `Prioritise digital-first channels scoring ${(sim.conversion * 100).toFixed(1)}% conversion.`,
+        'Queue micro-segment modelling before offer design.'
+      ],
+      kpiImpact: [
+        { id: 'opp', label: 'Opportunity', value: `${(sim.opportunity / 100).toFixed(1)} idx`, helper: 'Propensity score' },
+        { id: 'payback', label: 'Payback', value: payback, helper: 'Simulated CAC recovery' },
+        { id: 'gm', label: '12-mo GM', value: `$${sim.gm12.toLocaleString()}`, helper: 'Modeled lift' }
+      ]
+    };
+  }, [activeSegment, mode]);
+
+  const previewGuardrails = React.useMemo(() => {
+    if (!activeSegment) return undefined;
+    const { sim } = activeSegment;
+    return [
+      {
+        id: 'payback',
+        label: `Payback ${typeof sim.payback === 'number' ? `${sim.payback} mo` : sim.payback}`,
+        passed: typeof sim.payback === 'number' ? sim.payback <= 12 : true
+      },
+      {
+        id: 'opportunity',
+        label: `Opportunity ${(sim.opportunity / 100).toFixed(1)} idx`,
+        passed: sim.opportunity >= 45
+      },
+      {
+        id: 'net-adds',
+        label: `Net adds ${Math.round(sim.netAdds).toLocaleString()}`,
+        passed: sim.netAdds >= 2500
+      }
+    ];
+  }, [activeSegment]);
+
   const rightRailSections = React.useMemo(() => {
     if (!activeSegment) return [];
     const segment = activeSegment.segment;
@@ -926,17 +1227,117 @@ const MarketRadar: React.FC = () => {
       <div className="card border border-emerald-500/20 bg-slate-900/70 p-5">
         <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
           <div>
-            <h1 className="text-2xl font-semibold text-white">Market Radar</h1>
-            <p className="mt-2 max-w-2xl text-sm text-slate-300">
-              Scan synthetic market signals to spot subscriber cohorts worth advancing into deeper design work.
-            </p>
+            <h1 className="text-2xl font-semibold text-white">Opportunity Radar</h1>
+            <p className="mt-2 max-w-3xl text-sm text-slate-300">{hero.blurb}</p>
           </div>
           <InfoPopover
-            title="Market Radar overview"
+            title="Opportunity Radar overview"
             description="Start here to explore the universe, tune filters, and shortlist the strongest cohorts before moving on."
           />
         </div>
-        <div className="mt-4 grid gap-3 text-sm text-slate-200 md:grid-cols-3">
+        <div className="mt-4 flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
+          <div className="flex items-center gap-3">
+            <label htmlFor="mode-lens" className="text-xs uppercase tracking-wide text-slate-400">
+              Mode lens
+            </label>
+            <select
+              id="mode-lens"
+              value={lens}
+              onChange={(event) => setLens(event.target.value as Mode)}
+              className="rounded-md border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-white focus:border-emerald-500 focus:outline-none"
+            >
+              {(Object.keys(modeLabel) as Mode[]).map((option) => (
+                <option key={option} value={option}>
+                  {modeLabel[option]}
+                </option>
+              ))}
+            </select>
+          </div>
+          <span className="text-xs text-slate-500">Signal set updates when you change the lens.</span>
+        </div>
+        <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
+          {hero.hero.map((kpi) => (
+            <div key={kpi.id} className="rounded-xl border border-slate-800 bg-slate-950/60 p-4">
+              <p className="text-xs uppercase tracking-wide text-slate-400">{kpi.label}</p>
+              <p className="mt-2 text-xl font-semibold text-white">{kpi.value}</p>
+              {kpi.helper ? (
+                <p className="text-[10px] uppercase tracking-wide text-slate-500">{kpi.helper}</p>
+              ) : null}
+            </div>
+          ))}
+        </div>
+        <div className="mt-4 grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+          {filteredSignals.length ? (
+            filteredSignals.map((signal) => {
+              const isSelected = signal.id === selectedSignalId;
+              const cohort = segmentLookup.get(signal.cohortId) ?? {
+                id: signal.cohortId,
+                name: signal.cohortName,
+                size: signal.cohortSize
+              };
+              return (
+                <button
+                  key={signal.id}
+                  type="button"
+                  onClick={() => selectSignal(signal)}
+                  aria-pressed={isSelected}
+                  className={`flex h-full flex-col rounded-xl border px-4 py-4 text-left transition ${
+                    isSelected
+                      ? 'border-emerald-500/50 bg-emerald-500/10 shadow-lg'
+                      : 'border-slate-800 bg-slate-950/50 hover:border-emerald-500/40'
+                  }`}
+                >
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <p className="text-xs uppercase tracking-wide text-slate-400">{modeLabel[signal.mode]} signal</p>
+                      <h3 className="text-base font-semibold text-white">{signal.title}</h3>
+                    </div>
+                    <span className="rounded-full border border-emerald-500/30 bg-emerald-500/10 px-2 py-0.5 text-[11px] font-semibold text-emerald-200">
+                      Score {signal.score}
+                    </span>
+                  </div>
+                  <p className="mt-2 text-xs text-emerald-300">{intentCopy}</p>
+                  <p className="mt-3 text-sm text-slate-300">{signal.change}</p>
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    {signal.drivers.map((driver) => (
+                      <span
+                        key={driver}
+                        className="rounded-full border border-slate-700 bg-slate-900/60 px-3 py-1 text-xs text-slate-300"
+                      >
+                        {driver}
+                      </span>
+                    ))}
+                  </div>
+                  <div className="mt-4 rounded-lg border border-slate-800 bg-slate-900/70 p-3 text-xs text-slate-400">
+                    <p className="text-sm font-semibold text-white">{cohort.name}</p>
+                    <p className="mt-1">Size: {formatNumber(cohort.size)} HHs</p>
+                    <p>Lifecycle lens: {modeLabel[signal.mode]}</p>
+                  </div>
+                </button>
+              );
+            })
+          ) : (
+            <div className="rounded-xl border border-slate-800 bg-slate-950/60 p-4 text-sm text-slate-300">
+              No signals for this lens yet. Adjust filters to unlock more opportunities.
+            </div>
+          )}
+        </div>
+        <div className="mt-4 flex flex-col items-start gap-3 md:flex-row md:items-center md:justify-between">
+          <div className="text-sm text-slate-400">
+            {activeSignalCohort
+              ? `Suggested cohort: ${activeSignalCohort.name} • ${formatNumber(activeSignalCohort.size)} HHs`
+              : 'Select a signal to preview the cohort.'}
+          </div>
+          <button
+            type="button"
+            onClick={handleExportToStudio}
+            disabled={!activeSignalCohort}
+            className="rounded-full bg-emerald-500 px-4 py-2 text-sm font-semibold text-slate-950 transition hover:bg-emerald-600 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            {'Export selection -> Segment Studio'}
+          </button>
+        </div>
+        <div className="mt-6 grid gap-3 text-sm text-slate-200 md:grid-cols-3">
           <div className="flex items-start gap-2">
             <InfoPopover title="Filter quickly" description="Mix structured filters with quick commands to focus the cohort list." />
             <span>Use filters or the intent bar to zero in on the customers you care most about.</span>
@@ -2257,6 +2658,14 @@ const MarketRadar: React.FC = () => {
           <RightRail
             title={activeSegment.segment.name}
             subtitle={`ID ${activeSegment.segment.id}`}
+            preview={
+              <PlaybookPreview
+                mode={mode}
+                selectedSegment={selectedSegment}
+                draftPlan={previewDraft}
+                guardrails={previewGuardrails}
+              />
+            }
             kpis={[
               {
                 label: 'Payback (mo)',

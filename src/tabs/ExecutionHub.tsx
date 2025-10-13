@@ -8,6 +8,7 @@ import Section from '../components/Section';
 import MiniBadge from '../components/MiniBadge';
 import TrendChip from '../components/TrendChip';
 import { useToast } from '../components/ToastProvider';
+import { useAppState } from '../appState';
 
 const statusTone: Record<Campaign['status'], string> = {
   Planned: 'bg-slate-500/20 text-slate-200',
@@ -43,11 +44,15 @@ const ExecutionHub: React.FC = () => {
   const navigate = useNavigate();
   const location = useLocation();
   const locationState = (location.state as ExecLocationState) ?? {};
+  const { mode, planId } = useAppState();
+  const modeLabel = React.useMemo(() => mode.charAt(0).toUpperCase() + mode.slice(1), [mode]);
 
   const [statusFilter, setStatusFilter] = React.useState<'all' | Campaign['status']>('all');
   const [agentFilter, setAgentFilter] = React.useState<'all' | Campaign['agent']>('all');
   const [channelFilter, setChannelFilter] = React.useState<'all' | ChannelKey>('all');
-  const [selectedId, setSelectedId] = React.useState<string>(() => locationState.selectedCampaignId ?? campaigns[0]?.id ?? '');
+  const [selectedId, setSelectedId] = React.useState<string>(
+    () => locationState.selectedCampaignId ?? planId ?? campaigns[0]?.id ?? ''
+  );
   const [showLaunchChip, setShowLaunchChip] = React.useState<boolean>(Boolean(locationState.fromLaunch));
   const [pendingPrefill, setPendingPrefill] = React.useState(locationState.pendingDeltas);
 
@@ -67,6 +72,13 @@ const ExecutionHub: React.FC = () => {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  React.useEffect(() => {
+    if (!planId) return;
+    if (campaigns.some((campaign) => campaign.id === planId)) {
+      setSelectedId(planId);
+    }
+  }, [campaigns, planId]);
 
   const filteredCampaigns = React.useMemo(() => {
     return campaigns.filter((campaign) => {
@@ -225,7 +237,18 @@ const ExecutionHub: React.FC = () => {
   const actionLog = agentActions[selectedCampaign.id] ?? [];
 
   return (
-    <div className="grid gap-6 lg:grid-cols-[260px_minmax(0,1fr)_280px]">
+    <div className="mx-auto max-w-6xl space-y-6 text-slate-200">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <h2 className="text-lg font-semibold text-white">Execution Hub</h2>
+          <p className="text-xs text-slate-400">{selectedCampaign.name}</p>
+          {planId ? <p className="text-[11px] text-slate-500">Active plan: {planId}</p> : null}
+        </div>
+        <span className="inline-flex items-center gap-2 rounded-full border border-slate-700 bg-slate-900/80 px-3 py-1 text-xs uppercase tracking-wide text-slate-300">
+          {modeLabel} mode
+        </span>
+      </div>
+      <div className="grid gap-6 lg:grid-cols-[260px_minmax(0,1fr)_280px]">
       <aside className="space-y-5">
         <div className="rounded-2xl border border-slate-800/80 bg-slate-900/70 p-5">
           <div className="flex items-center justify-between">
@@ -635,6 +658,7 @@ const ExecutionHub: React.FC = () => {
           </div>
         </div>
       </aside>
+      </div>
     </div>
   );
 };

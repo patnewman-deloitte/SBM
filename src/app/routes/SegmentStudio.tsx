@@ -2,11 +2,13 @@ import React from 'react';
 import { useNavigate } from 'react-router-dom';
 import InfoPopover from '../../components/InfoPopover';
 import RightRail from '../../components/RightRail';
+import PlaybookPreview from '../../components/PlaybookPreview';
 import SelectionTray from '../../components/SelectionTray';
 import SubsegmentTile from '../../components/SubsegmentTile';
 import { simulateAudience } from '../../sim/tinySim';
 import { useGlobalStore } from '../../store/global';
 import type { Segment } from '../../store/global';
+import { useAppState } from '../../appState';
 
 const defaultMix = {
   'ch-search': 0.32,
@@ -26,6 +28,7 @@ const SegmentStudio: React.FC = () => {
   const channels = useGlobalStore((s) => s.channels);
   const selectedMicroIds = useGlobalStore((s) => s.selectedMicroIds);
   const setSelectedMicro = useGlobalStore((s) => s.setSelectedMicro);
+  const { mode, selectedSegment, setSelectedSegment } = useAppState();
 
   const offer = offers[1] ?? offers[0];
 
@@ -106,6 +109,68 @@ const SegmentStudio: React.FC = () => {
   }, [selectedMicroIds, subsegments]);
 
   const recommended = sortedSubsegments[0];
+  const modeLabel = React.useMemo(() => mode.charAt(0).toUpperCase() + mode.slice(1), [mode]);
+
+  React.useEffect(() => {
+    if (!recommended) return;
+    const next = {
+      id: recommended.segment.id,
+      name: recommended.segment.name,
+      size: recommended.segment.size
+    };
+    if (
+      !selectedSegment ||
+      selectedSegment.id !== next.id ||
+      selectedSegment.name !== next.name ||
+      selectedSegment.size !== next.size
+    ) {
+      setSelectedSegment(next);
+    }
+  }, [recommended, selectedSegment, setSelectedSegment]);
+
+  const previewSegment = React.useMemo(() => {
+    if (!recommended) return selectedSegment;
+    return {
+      id: recommended.segment.id,
+      name: `${recommended.segment.name} — ${recommended.micro.name}`,
+      size: Math.round(recommended.segment.size * recommended.micro.sizeShare)
+    };
+  }, [recommended, selectedSegment]);
+
+  const previewDraft = React.useMemo(() => {
+    if (!recommended) return undefined;
+    const payback =
+      typeof recommended.sim.paybackMonths === 'number'
+        ? `${recommended.sim.paybackMonths} mo`
+        : recommended.sim.paybackMonths;
+    return {
+      summary: `Refine ${recommended.segment.name} cohorts for the ${modeLabel} motion before launch.`,
+      actions: [
+        `Activate ${recommended.micro.name} at ${(recommended.micro.sizeShare * 100).toFixed(1)}% of the segment.`,
+        `Pair ${offer.name} with ${(defaultMix['ch-search'] * 100).toFixed(0)}% Search and ${(defaultMix['ch-social'] * 100).toFixed(0)}% Social.`,
+        'Export the winning mix to the Designer once guardrails clear.'
+      ],
+      kpiImpact: [
+        { id: 'payback', label: 'Payback', value: payback, helper: 'tinySim result' },
+        { id: 'gm', label: '12-mo GM', value: `$${recommended.sim.gm12m.toLocaleString()}`, helper: 'Modeled margin' },
+        { id: 'net', label: 'Net adds', value: Math.round(recommended.sim.netAdds).toLocaleString(), helper: 'Projected lift' }
+      ]
+    };
+  }, [modeLabel, offer.name, recommended]);
+
+  const previewGuardrails = React.useMemo(() => {
+    if (!recommended) return undefined;
+    const cac = recommended.sim.breakdown.cac;
+    return [
+      { id: 'cac', label: `CAC $${Math.round(cac).toLocaleString()}`, passed: cac <= 180 },
+      { id: 'margin', label: `Margin ${recommended.sim.marginPct}%`, passed: Number(recommended.sim.marginPct) >= 25 },
+      {
+        id: 'conversion',
+        label: `Conversion ${(recommended.sim.conversionRate * 100).toFixed(1)}%`,
+        passed: recommended.sim.conversionRate >= 0.04
+      }
+    ];
+  }, [recommended]);
 
   return (
     <div className="space-y-6">
@@ -223,6 +288,14 @@ const SegmentStudio: React.FC = () => {
           <RightRail
             title="Targeting strategy"
             subtitle="AI-assisted recommendation"
+            preview={
+              <PlaybookPreview
+                mode={mode}
+                selectedSegment={previewSegment}
+                draftPlan={previewDraft}
+                guardrails={previewGuardrails}
+              />
+            }
             sections={[
               {
                 id: 'strategy',

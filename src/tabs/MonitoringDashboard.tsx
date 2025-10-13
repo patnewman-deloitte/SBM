@@ -19,6 +19,7 @@ import Section from '../components/Section';
 import MiniBadge from '../components/MiniBadge';
 import TrendChip from '../components/TrendChip';
 import { useToast } from '../components/ToastProvider';
+import { useAppState } from '../appState';
 
 const channelKeys: ChannelKey[] = ['Search', 'Social', 'Email', 'Retail', 'Field'];
 
@@ -58,7 +59,9 @@ const MonitoringDashboard: React.FC = () => {
   const navigate = useNavigate();
   const location = useLocation();
   const focusCampaignId = (location.state as { focusCampaignId?: string } | null)?.focusCampaignId;
-  const [selectedCampaignId, setSelectedCampaignId] = React.useState<'all' | string>(focusCampaignId ?? 'all');
+  const { mode, planId } = useAppState();
+  const modeLabel = React.useMemo(() => mode.charAt(0).toUpperCase() + mode.slice(1), [mode]);
+  const [selectedCampaignId, setSelectedCampaignId] = React.useState<'all' | string>(focusCampaignId ?? planId ?? 'all');
   const [range, setRange] = React.useState<30 | 60 | 90>(30);
   const [insights, setInsights] = React.useState<string[]>([
     'Email is outperforming Retail on CVR for switch-prone families.',
@@ -73,6 +76,13 @@ const MonitoringDashboard: React.FC = () => {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  React.useEffect(() => {
+    if (!planId) return;
+    if (campaigns.some((campaign) => campaign.id === planId)) {
+      setSelectedCampaignId(planId);
+    }
+  }, [campaigns, planId]);
 
   React.useEffect(() => {
     const pool = [
@@ -204,8 +214,12 @@ const MonitoringDashboard: React.FC = () => {
         <div>
           <h2 className="text-xl font-semibold text-white">Monitoring dashboard</h2>
           <p className="text-sm text-slate-400">One-glance health of live acquisition plays.</p>
+          {planId ? <p className="text-xs text-slate-500">Tracking plan: {planId}</p> : null}
         </div>
         <div className="flex flex-wrap items-center gap-3">
+          <span className="inline-flex items-center gap-2 rounded-full border border-slate-700 bg-slate-900/80 px-3 py-1 text-xs uppercase tracking-wide text-slate-300">
+            {modeLabel} mode
+          </span>
           <select
             className="rounded-full border border-slate-700 bg-slate-900/80 px-4 py-2 text-sm text-slate-200"
             value={selectedCampaignId}
