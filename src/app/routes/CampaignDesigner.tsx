@@ -1,8 +1,8 @@
 import React from 'react';
 import { useNavigate } from 'react-router-dom';
-import PlaybookPreview from '../../components/PlaybookPreview';
-import { Mode, useAppState } from '../../appState';
+import { Mode, aggregateSubsegments, useAppState } from '../../appState';
 import { offersAPI, execAPI } from '../../mocks';
+import InfoIcon from '../../components/InfoIcon';
 
 const capitalise = (value: string) => value.charAt(0).toUpperCase() + value.slice(1);
 
@@ -47,6 +47,58 @@ const guardrailCopy = {
   retain: 'Retention guardrail'
 } as const;
 
+const recommendedCreativeCopy: Record<
+  Mode,
+  (segmentName?: string, trait?: string) => {
+    subject: string;
+    headline: string;
+    subhead: string;
+    bullets: string[];
+    cta: string;
+    offer: string;
+  }
+> = {
+  acquire: (segmentName, trait) => ({
+    subject: 'Unlock $20/mo when you move to 5G Family',
+    headline: 'Unlock $20/mo when you move to 5G Family',
+    subhead: `${segmentName ?? 'High-value households'}${trait ? ` — ${trait}` : ''} get priority activation plus device credits.`,
+    bullets: [
+      trait ? `Focus: ${trait}` : null,
+      'Priority install within 72 hours',
+      'Waived activation and upgrade fees',
+      'Bundle mobile + home for extra $15/mo off',
+    ].filter(Boolean) as string[],
+    cta: 'Claim your 5G Family offer',
+    offer: 'Limited-time credit applied to your first 6 months.',
+  }),
+  grow: (segmentName, trait) => ({
+    subject: 'Upgrade to Premium 5G — add Home Internet & save',
+    headline: 'Upgrade to Premium 5G — add Home Internet & save',
+    subhead: `${segmentName ?? 'Members'}${trait ? ` — ${trait}` : ''} unlock bundled savings with premium care.`,
+    bullets: [
+      trait ? `Focus: ${trait}` : null,
+      'Premium speed upgrade in minutes',
+      'Add Home Internet for $25/mo less',
+      'Loyalty perk: priority support & device savings',
+    ].filter(Boolean) as string[],
+    cta: 'Build my premium bundle',
+    offer: 'Bundle mobile + home internet and save $25/mo.',
+  }),
+  retain: (segmentName, trait) => ({
+    subject: 'We’ve got you — stay and save with priority care',
+    headline: 'We’ve got you — stay and save with priority care',
+    subhead: `${segmentName ?? 'Members'}${trait ? ` — ${trait}` : ''} keep perks, credits, and fast-track support.`,
+    bullets: [
+      trait ? `Focus: ${trait}` : null,
+      'Immediate bill relief credit',
+      'Dedicated care hotline & callbacks',
+      'Device protection included for 12 months',
+    ].filter(Boolean) as string[],
+    cta: 'Stay with priority care',
+    offer: 'Keep your plan and unlock a loyalty credit this cycle.',
+  }),
+};
+
 type SimulationState = {
   loading: boolean;
   data?: { payback: number; gm12: number; netAdds: number; flags: string[] };
@@ -60,10 +112,51 @@ const buildOfferDepth = (mode: Mode, value: number) => {
 
 const formatCurrency = (value: number) => `$${value.toLocaleString()}`;
 
+type PredictForm = { priceDelta: number; incentiveCap: number; budget: number; dailyCap: number; loyaltySignal: number; pacingWeeks: number };
+
+function predict(mode: 'acquire', pop: number, form: PredictForm): { reach: number; conv: number; cpa: number; payback: number };
+function predict(mode: 'grow', pop: number, form: PredictForm): { reach: number; arpu: number; attach: number; clv: number };
+function predict(mode: 'retain', pop: number, form: PredictForm): { atRisk: number; saves: number; saveRate: number; churnDeltaBps: number };
+function predict(mode: Mode, pop: number, form: PredictForm) {
+  const base = Math.max(pop, 0);
+  const intensity = Math.max(0.6, Math.min(1.8, form.priceDelta / 60 || 1));
+  const budgetFactor = Math.max(0.7, Math.min(1.5, form.budget / 250000));
+  if (mode === 'acquire') {
+    const reach = Math.round(base * 0.35 * intensity);
+    const conv = Math.round(base * 0.035 * intensity);
+    const cpa = Math.max(60, Math.round(form.budget / Math.max(conv, 1)));
+    const payback = Number((8.5 - intensity * 0.6 + Math.min(1.2, form.dailyCap / 25000)).toFixed(1));
+    return { reach, conv, cpa, payback } as const;
+  }
+  if (mode === 'grow') {
+    const reach = Math.round(base * 0.45 * intensity * 0.9);
+    const arpu = Number((5.2 + form.priceDelta / 120 + form.loyaltySignal / 160).toFixed(2));
+    const attach = Number(Math.min(0.48, 0.24 + form.incentiveCap / 4000 + form.dailyCap / 160000).toFixed(2));
+    const clv = Math.round((210 + form.loyaltySignal * 6) * budgetFactor);
+    return { reach, arpu, attach, clv } as const;
+  }
+  const atRisk = Math.round(base * 0.22 * Math.max(0.7, Math.min(1.3, form.pacingWeeks / 8)));
+  const saveRate = Math.max(0.4, Math.min(0.78, 0.62 + form.incentiveCap / 300 - form.dailyCap / 200000));
+  const saves = Math.round(atRisk * saveRate);
+  const churnDeltaBps = Math.round(-35 - saveRate * 18);
+  return { atRisk, saves, saveRate, churnDeltaBps } as const;
+}
+
 const CampaignDesigner: React.FC = () => {
   const navigate = useNavigate();
-  const { mode, selectedSegment, setStep, setPlanId } = useAppState();
+  const { mode, selectedSegment, selectedSubsegments, setStep, setPlanId } = useAppState();
 
+  const [designMode, setDesignMode] = React.useState<'recommend' | 'customize'>('recommend');
+  const [activeChannel, setActiveChannel] = React.useState<'Email' | 'SMS' | 'Ad' | 'Landing'>('Email');
+  const fileInputRef = React.useRef<HTMLInputElement | null>(null);
+  const [creativeImage, setCreativeImage] = React.useState<string | null>(null);
+  const [subjectLine, setSubjectLine] = React.useState('');
+  const [headlineCopy, setHeadlineCopy] = React.useState('');
+  const [subheadCopy, setSubheadCopy] = React.useState('');
+  const [ctaCopy, setCtaCopy] = React.useState('');
+  const [offerCopy, setOfferCopy] = React.useState('');
+  const [bulletCopy, setBulletCopy] = React.useState<string[]>(['', '', '']);
+  const [editingField, setEditingField] = React.useState<string | null>(null);
   const [planName, setPlanName] = React.useState('Lifecycle launch plan');
   const [strategy, setStrategy] = React.useState(strategyOptions[mode][0].id);
   const [channelFocus, setChannelFocus] = React.useState(channelPresets[mode][0]);
@@ -79,6 +172,167 @@ const CampaignDesigner: React.FC = () => {
   const [cannibalizationGuardrail, setCannibalizationGuardrail] = React.useState(true);
   const [simulation, setSimulation] = React.useState<SimulationState>({ loading: false });
   const [pushLoading, setPushLoading] = React.useState(false);
+
+  const aggregatedSubsegments = React.useMemo(
+    () => (selectedSubsegments.length ? aggregateSubsegments(selectedSubsegments) : null),
+    [selectedSubsegments]
+  );
+
+  const dominantTrait = React.useMemo(() => {
+    if (!selectedSubsegments.length) return undefined;
+    const tally = new Map<string, number>();
+    selectedSubsegments.forEach((sub) => {
+      sub.traits.forEach((trait) => {
+        tally.set(trait, (tally.get(trait) ?? 0) + 1);
+      });
+    });
+    let best: string | undefined;
+    let max = 0;
+    tally.forEach((count, trait) => {
+      if (count > max) {
+        max = count;
+        best = trait;
+      }
+    });
+    return best;
+  }, [selectedSubsegments]);
+
+  const applyRecommendedCreative = React.useCallback(() => {
+    const template = recommendedCreativeCopy[mode](selectedSegment?.name, dominantTrait);
+    setSubjectLine(template.subject);
+    setHeadlineCopy(template.headline);
+    setSubheadCopy(template.subhead);
+    setCtaCopy(template.cta);
+    setOfferCopy(template.offer);
+    setBulletCopy(() => {
+      const base = template.bullets.slice(0, 3);
+      while (base.length < 3) {
+        base.push('');
+      }
+      return base;
+    });
+  }, [dominantTrait, mode, selectedSegment?.name]);
+
+  React.useEffect(() => {
+    if (designMode === 'recommend') {
+      applyRecommendedCreative();
+    }
+  }, [applyRecommendedCreative, designMode]);
+
+  React.useEffect(() => {
+    setCreativeImage(null);
+  }, [mode]);
+
+  const handleImageUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      if (typeof reader.result === 'string') {
+        setCreativeImage(reader.result);
+      }
+    };
+    reader.readAsDataURL(file);
+  };
+
+  const handleBulletChange = (index: number, value: string) => {
+    setBulletCopy((prev) => {
+      const next = [...prev];
+      next[index] = value;
+      return next;
+    });
+  };
+
+  const renderEditable = (
+    id: string,
+    label: string,
+    value: string,
+    onChange: (next: string) => void,
+    multiline = false
+  ) => {
+    const isEditing = editingField === id;
+    return (
+      <div className="mt-3 rounded-lg border border-slate-800 bg-slate-950/70 p-3">
+        <div className="flex items-start justify-between gap-3">
+          <div className="flex-1">
+            <p className="text-[11px] uppercase tracking-wide text-slate-400">{label}</p>
+            {isEditing ? (
+              multiline ? (
+                <textarea
+                  value={value}
+                  onChange={(event) => onChange(event.target.value)}
+                  rows={3}
+                  className="mt-2 w-full rounded-lg border border-slate-800 bg-slate-950 px-3 py-2 text-sm text-white focus:border-emerald-500 focus:outline-none"
+                />
+              ) : (
+                <input
+                  value={value}
+                  onChange={(event) => onChange(event.target.value)}
+                  className="mt-2 w-full rounded-lg border border-slate-800 bg-slate-950 px-3 py-2 text-sm text-white focus:border-emerald-500 focus:outline-none"
+                />
+              )
+            ) : (
+              <p className="mt-2 text-sm text-white">{value || '—'}</p>
+            )}
+          </div>
+          <button
+            type="button"
+            onClick={() => setEditingField(isEditing ? null : id)}
+            aria-pressed={isEditing}
+            className="rounded-full px-2 py-1 text-xs text-slate-400 transition hover:text-emerald-300"
+            title="Edit copy"
+          >
+            ✎
+          </button>
+        </div>
+      </div>
+    );
+  };
+
+  const renderBullet = (index: number) => {
+    const id = `bullet-${index}`;
+    const value = bulletCopy[index] ?? '';
+    const isEditing = editingField === id;
+    return (
+      <div key={id} className="mt-2 rounded-lg border border-slate-800 bg-slate-950/70 p-3">
+        <div className="flex items-start justify-between gap-3">
+          <div className="flex-1">
+            <p className="text-[11px] uppercase tracking-wide text-slate-400">Bullet {index + 1}</p>
+            {isEditing ? (
+              <input
+                value={value}
+                onChange={(event) => handleBulletChange(index, event.target.value)}
+                className="mt-2 w-full rounded-lg border border-slate-800 bg-slate-950 px-3 py-2 text-sm text-white focus:border-emerald-500 focus:outline-none"
+              />
+            ) : (
+              <p className="mt-2 text-sm text-white">• {value || 'Add highlight'}</p>
+            )}
+          </div>
+          <button
+            type="button"
+            onClick={() => setEditingField(isEditing ? null : id)}
+            aria-pressed={isEditing}
+            className="rounded-full px-2 py-1 text-xs text-slate-400 transition hover:text-emerald-300"
+            title="Edit bullet"
+          >
+            ✎
+          </button>
+        </div>
+      </div>
+    );
+  };
+
+  const formSnapshot = React.useMemo(
+    () => ({
+      priceDelta,
+      incentiveCap,
+      budget,
+      dailyCap,
+      loyaltySignal: loyaltyPerk.trim().length,
+      pacingWeeks: Number(pacing.match(/\d+/)?.[0] ?? 6),
+    }),
+    [budget, dailyCap, incentiveCap, loyaltyPerk, pacing, priceDelta]
+  );
 
   React.useEffect(() => {
     setStrategy(strategyOptions[mode][0].id);
@@ -161,35 +415,34 @@ const CampaignDesigner: React.FC = () => {
     ];
   }, [budget, cannibalizationGuardrail, mode, selectedSegment, simulation.data]);
 
-  const previewDraft = React.useMemo(() => {
-    if (!selectedSegment) return undefined;
-    const option = strategyOptions[mode].find((item) => item.id === strategy);
-    const modeSpecificAction =
-      mode === 'retain'
-        ? `Save path: ${incentiveCap}% incentive cap.`
-        : mode === 'grow'
-        ? `Perk focus: ${loyaltyPerk}.`
-        : `Offer depth tuned to ${priceDelta}.`;
-    return {
-      headline: `${capitalise(mode)} play for ${selectedSegment.name}`,
-      summary: `${option?.label ?? 'Lifecycle'} strategy ready for execution across ${channelFocus.toLowerCase()}.`,
-      actions: [
-        `Plan: ${planName}.`,
-        `Cadence: ${cadence}.`,
-        modeSpecificAction
-      ],
-      kpiImpact: kpiCards
-    };
-  }, [cadence, channelFocus, incentiveCap, kpiCards, loyaltyPerk, mode, planName, priceDelta, selectedSegment, strategy]);
-
-  const previewGuardrails = React.useMemo(() => {
-    const flagItems = simulationFlags.map((flag) => ({ id: flag, label: flag.replace(/_/g, ' '), passed: false }));
+  const scoreTiles = React.useMemo(() => {
+    if (!selectedSegment) return [];
+    if (mode === 'acquire') {
+      const projection = predict('acquire', selectedSegment.size, formSnapshot);
+      return [
+        { id: 'reach', label: 'Projected reach', value: projection.reach.toLocaleString(), helper: 'Households touched' },
+        { id: 'conv', label: 'Modeled conversions', value: projection.conv.toLocaleString(), helper: 'First-cycle closes' },
+        { id: 'cpa', label: 'Blended CPA', value: formatCurrency(projection.cpa), helper: 'Spend per add' },
+        { id: 'payback', label: 'Payback (mo)', value: projection.payback.toFixed(1), helper: 'Payback horizon' },
+      ];
+    }
+    if (mode === 'grow') {
+      const projection = predict('grow', selectedSegment.size, formSnapshot);
+      return [
+        { id: 'reach', label: 'Reachable base', value: projection.reach.toLocaleString(), helper: 'Households engaged' },
+        { id: 'arpu', label: 'ARPU lift', value: `$${projection.arpu.toFixed(2)}`, helper: 'Incremental monthly lift' },
+        { id: 'attach', label: 'Attach rate', value: `${(projection.attach * 100).toFixed(1)}%`, helper: 'Expected attaches' },
+        { id: 'clv', label: 'CLV delta', value: formatCurrency(projection.clv), helper: 'Total lifetime gain' },
+      ];
+    }
+    const projection = predict('retain', selectedSegment.size, formSnapshot);
     return [
-      { id: 'guardrail', label: guardrailCopy[mode], passed: cannibalizationGuardrail },
-      { id: 'budget', label: `Pacing: ${pacing}`, passed: true },
-      ...flagItems
+      { id: 'atRisk', label: 'At-risk reached', value: projection.atRisk.toLocaleString(), helper: 'Households engaged' },
+      { id: 'saves', label: 'Expected saves', value: projection.saves.toLocaleString(), helper: 'Rescues modeled' },
+      { id: 'saveRate', label: 'Save rate', value: `${(projection.saveRate * 100).toFixed(1)}%`, helper: 'Stabilized share' },
+      { id: 'churnDelta', label: 'Churn delta', value: `${projection.churnDeltaBps} bps`, helper: 'Net churn shift' },
     ];
-  }, [cannibalizationGuardrail, mode, pacing, simulationFlags]);
+  }, [formSnapshot, mode, selectedSegment]);
 
   const handlePushPlan = async () => {
     if (!selectedSegment || pushLoading) return;
@@ -203,7 +456,9 @@ const CampaignDesigner: React.FC = () => {
     const planPayload = {
       id: `${strategy}-${Date.now().toString(36)}`,
       name: resolvedPlanName,
-      cohorts: [selectedSegment],
+      cohorts: selectedSubsegments.length
+        ? selectedSubsegments.map((sub) => ({ id: sub.id, name: sub.label, size: sub.population }))
+        : [selectedSegment],
       channels: {
         digital: Number(digitalShare.toFixed(2)),
         humanAssist: Number(humanShare.toFixed(2)),
@@ -231,270 +486,479 @@ const CampaignDesigner: React.FC = () => {
   };
 
   return (
-    <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_320px] xl:grid-cols-[minmax(0,1fr)_360px]">
-      <div className="space-y-6">
-        <div className="rounded-xl border border-slate-800 bg-slate-900/70 p-6">
-          <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
-            <div>
-              <p className="text-xs uppercase tracking-[0.3em] text-emerald-400">Step 3 · Offer & Campaign Designer</p>
-              <h1 className="mt-2 text-2xl font-semibold text-white">Shape the lifecycle play</h1>
-              <p className="mt-2 max-w-2xl text-sm text-slate-300">
-                Select the lifecycle strategy, tune pricing and incentives, pace spend, then simulate impact before handing off to execution.
+    <div className="space-y-4">
+      {!selectedSegment ? (
+        <div className="flex flex-wrap items-center gap-3 rounded-lg border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm text-amber-200">
+          <span>Select and send a segment from Segment Studio.</span>
+          <button
+            type="button"
+            onClick={() => navigate('/segment-studio')}
+            className="rounded-full border border-amber-400/50 px-3 py-1 text-xs font-semibold text-amber-100 transition hover:bg-amber-500/20"
+          >
+            Go to Segment Studio
+          </button>
+        </div>
+      ) : null}
+      <div className="lg:grid lg:grid-cols-[minmax(0,1fr)_360px] lg:items-start lg:gap-6">
+        <div className="space-y-6">
+          <div className="rounded-xl border border-slate-800 bg-slate-900/70 p-6">
+            <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
+              <div>
+                <p className="text-xs uppercase tracking-[0.3em] text-emerald-400">Step 3 · Offer & Campaign Designer</p>
+                <div className="mt-2 flex items-center gap-2">
+                  <h1 className="text-2xl font-semibold text-white">Shape the lifecycle play</h1>
+                  <InfoIcon
+                    title="Campaign Designer"
+                    body="Get an instant recommended plan aligned to your mode and audience, or switch to Customize for deeper control across copy, offers, and channels."
+                  />
+                </div>
+                <p className="mt-2 max-w-2xl text-sm text-slate-300">
+                  Select the lifecycle strategy, tune pricing and incentives, pace spend, then simulate impact before handing off to execution.
+                </p>
+              </div>
+            </div>
+            <div className="mt-4 flex flex-wrap items-center gap-3">
+              <div className="inline-flex items-center gap-2 rounded-full border border-slate-700 bg-slate-950/80 p-1">
+                <button
+                  type="button"
+                  onClick={() => setDesignMode('recommend')}
+                  aria-pressed={designMode === 'recommend'}
+                  className={`rounded-full px-4 py-1 text-sm font-semibold transition ${
+                    designMode === 'recommend'
+                      ? 'bg-emerald-600 text-white shadow-lg shadow-emerald-500/30'
+                      : 'text-slate-200 hover:bg-slate-800'
+                  }`}
+                >
+                  Recommend for me
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setDesignMode('customize')}
+                  aria-pressed={designMode === 'customize'}
+                  className={`rounded-full px-4 py-1 text-sm font-semibold transition ${
+                    designMode === 'customize'
+                      ? 'bg-emerald-600 text-white shadow-lg shadow-emerald-500/30'
+                      : 'text-slate-200 hover:bg-slate-800'
+                  }`}
+                >
+                  Customize
+                </button>
+              </div>
+              <InfoIcon
+                title="Design modes"
+                body="Use Recommend for a one-click campaign tuned to your dominant traits. Switch to Customize to edit every detail before handing off."
+              />
+            </div>
+            <div className="mb-4 mt-4 flex flex-wrap items-center gap-2">
+              <span className="rounded-full border border-slate-800 bg-slate-900 px-3 py-1 text-xs capitalize text-slate-300">Mode: {mode}</span>
+              {selectedSegment ? (
+                <span className="rounded-full border border-emerald-700 bg-emerald-900/30 px-3 py-1 text-xs text-emerald-100">
+                  Segment: {selectedSegment.name} • {selectedSegment.size.toLocaleString()} ppl
+                </span>
+              ) : (
+                <span className="rounded-full border border-amber-700 bg-amber-900/30 px-3 py-1 text-xs text-amber-200">No segment selected</span>
+              )}
+              {aggregatedSubsegments ? (
+                <span className="rounded-full border border-emerald-500/30 bg-emerald-500/10 px-3 py-1 text-xs font-semibold text-emerald-200">
+                  Targeting {aggregatedSubsegments.name} — {aggregatedSubsegments.size.toLocaleString()} ppl
+                </span>
+              ) : null}
+            </div>
+            {selectedSubsegments.length ? (
+              <div className="mb-4 flex flex-wrap items-center gap-2 text-xs">
+                {selectedSubsegments.map((subsegment) => (
+                  <span
+                    key={subsegment.id}
+                    className="rounded-full border border-slate-700 bg-slate-950 px-3 py-1 text-slate-200"
+                  >
+                    {subsegment.label} • {subsegment.population.toLocaleString()} ppl
+                  </span>
+                ))}
+              </div>
+            ) : null}
+          {designMode === 'recommend' ? (
+            <div className="space-y-4">
+              <p className="text-sm text-slate-300">
+                We’ll generate campaign copy, offers, and guardrails based on this lifecycle mode. You can launch directly or jump into full customization.
               </p>
+              <div className="rounded-lg border border-slate-800 bg-slate-950/70 p-4">
+                <p className="text-xs uppercase tracking-wide text-slate-400">Plan name</p>
+                <p className="mt-1 text-sm font-semibold text-white">{planName}</p>
+              </div>
+              <div className="rounded-lg border border-slate-800 bg-slate-950/70 p-4">
+                <p className="text-xs uppercase tracking-wide text-slate-400">Hero headline</p>
+                <p className="mt-2 text-lg font-semibold text-white">{headlineCopy}</p>
+                <p className="mt-2 text-sm text-slate-300">{subheadCopy}</p>
+                <ul className="mt-3 space-y-1 text-sm text-slate-200">
+                  {bulletCopy.map((bullet, index) => (
+                    <li key={`bullet-summary-${index}`}>• {bullet || 'Add highlight'}</li>
+                  ))}
+                </ul>
+                <div className="mt-3 flex flex-wrap items-center gap-3 text-sm text-emerald-200">
+                  <span className="rounded-full border border-emerald-500/30 bg-emerald-500/10 px-3 py-1 font-semibold">{ctaCopy}</span>
+                  <span className="text-slate-300">{offerCopy}</span>
+                </div>
+              </div>
             </div>
-            <div className="rounded-lg border border-slate-800 bg-slate-950/70 px-4 py-3 text-right text-xs text-slate-300">
-              <p className="uppercase tracking-[0.3em] text-slate-500">Mode lens</p>
-              <p className="mt-1 text-sm font-semibold text-white">{capitalise(mode)}</p>
-              <p className="text-[11px] text-slate-400">Strategies, inputs, and KPIs shift by lifecycle motion.</p>
-            </div>
-          </div>
-          <div className="mt-6 grid gap-4 md:grid-cols-2">
-            <label className="flex flex-col gap-2 text-sm">
-              <span className="text-xs uppercase tracking-wide text-slate-400">Plan name</span>
-              <input
-                value={planName}
-                onChange={(event) => setPlanName(event.target.value)}
-                className="rounded-lg border border-slate-800 bg-slate-950 px-3 py-2 text-sm text-white focus:border-emerald-500 focus:outline-none"
-              />
-            </label>
-            <label className="flex flex-col gap-2 text-sm">
-              <span className="text-xs uppercase tracking-wide text-slate-400">Strategy</span>
-              <select
-                value={strategy}
-                onChange={(event) => setStrategy(event.target.value)}
-                className="rounded-lg border border-slate-800 bg-slate-950 px-3 py-2 text-sm text-white focus:border-emerald-500 focus:outline-none"
-              >
-                {strategyOptions[mode].map((option) => (
-                  <option key={option.id} value={option.id}>
-                    {option.label}
-                  </option>
-                ))}
-              </select>
-              <span className="text-xs text-slate-400">{strategyOptions[mode].find((item) => item.id === strategy)?.description}</span>
-            </label>
-            <label className="flex flex-col gap-2 text-sm">
-              <span className="text-xs uppercase tracking-wide text-slate-400">Channel focus</span>
-              <select
-                value={channelFocus}
-                onChange={(event) => setChannelFocus(event.target.value)}
-                className="rounded-lg border border-slate-800 bg-slate-950 px-3 py-2 text-sm text-white focus:border-emerald-500 focus:outline-none"
-              >
-                {channelPresets[mode].map((item) => (
-                  <option key={item} value={item}>
-                    {item}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label className="flex flex-col gap-2 text-sm">
-              <span className="text-xs uppercase tracking-wide text-slate-400">Cadence</span>
-              <select
-                value={cadence}
-                onChange={(event) => setCadence(event.target.value)}
-                className="rounded-lg border border-slate-800 bg-slate-950 px-3 py-2 text-sm text-white focus:border-emerald-500 focus:outline-none"
-              >
-                {cadencePresets[mode].map((item) => (
-                  <option key={item} value={item}>
-                    {item}
-                  </option>
-                ))}
-              </select>
-            </label>
-            {mode === 'grow' ? (
+          ) : (
+            <div className="mt-4 grid gap-4 md:grid-cols-2">
               <label className="flex flex-col gap-2 text-sm">
-                <span className="text-xs uppercase tracking-wide text-slate-400">Loyalty perk</span>
+                <span className="text-xs uppercase tracking-wide text-slate-400">Plan name</span>
                 <input
-                  value={loyaltyPerk}
-                  onChange={(event) => setLoyaltyPerk(event.target.value)}
+                  value={planName}
+                  onChange={(event) => setPlanName(event.target.value)}
                   className="rounded-lg border border-slate-800 bg-slate-950 px-3 py-2 text-sm text-white focus:border-emerald-500 focus:outline-none"
                 />
               </label>
-            ) : null}
-            {mode === 'retain' ? (
-              <label className="flex flex-col gap-2 text-sm md:col-span-2">
-                <span className="text-xs uppercase tracking-wide text-slate-400">Outreach sequence</span>
-                <textarea
-                  value={creativeAngle}
-                  onChange={(event) => setCreativeAngle(event.target.value)}
-                  rows={3}
-                  className="rounded-lg border border-slate-800 bg-slate-950 px-3 py-2 text-sm text-white focus:border-emerald-500 focus:outline-none"
-                />
-                <span className="text-xs text-slate-400">Layer proactive outreach by channel to prevent churn.</span>
-              </label>
-            ) : (
-              <label className="flex flex-col gap-2 text-sm md:col-span-2">
-                <span className="text-xs uppercase tracking-wide text-slate-400">Creative / messaging angle</span>
-                <textarea
-                  value={creativeAngle}
-                  onChange={(event) => setCreativeAngle(event.target.value)}
-                  rows={3}
-                  className="rounded-lg border border-slate-800 bg-slate-950 px-3 py-2 text-sm text-white focus:border-emerald-500 focus:outline-none"
-                />
-                <span className="text-xs text-slate-400">Keep copy aligned to lifecycle promise for this cohort.</span>
-              </label>
-            )}
-          </div>
-        </div>
-
-        <div className="rounded-xl border border-slate-800 bg-slate-900/70 p-6">
-          <h2 className="text-lg font-semibold text-white">Pricing & incentive levers</h2>
-          <div className="mt-4 grid gap-4 md:grid-cols-3">
-            <label className="flex flex-col gap-2 text-sm">
-              <span className="text-xs uppercase tracking-wide text-slate-400">Offer depth</span>
-              <input
-                type="number"
-                value={priceDelta}
-                onChange={(event) => setPriceDelta(Number(event.target.value) || 0)}
-                className="rounded-lg border border-slate-800 bg-slate-950 px-3 py-2 text-sm text-white focus:border-emerald-500 focus:outline-none"
-              />
-              <span className="text-xs text-slate-400">
-                {mode === 'acquire' ? 'Promo value ($)' : mode === 'grow' ? 'Price delta ($)' : 'Save incentive (%)'}
-              </span>
-            </label>
-            <label className="flex flex-col gap-2 text-sm">
-              <span className="text-xs uppercase tracking-wide text-slate-400">Incentive cap</span>
-              <input
-                type="number"
-                value={incentiveCap}
-                onChange={(event) => setIncentiveCap(Number(event.target.value) || 0)}
-                className="rounded-lg border border-slate-800 bg-slate-950 px-3 py-2 text-sm text-white focus:border-emerald-500 focus:outline-none"
-              />
-              <span className="text-xs text-slate-400">Protect margin across channels.</span>
-            </label>
-            {mode === 'grow' ? (
               <label className="flex flex-col gap-2 text-sm">
-                <span className="text-xs uppercase tracking-wide text-slate-400">Loyalty perk</span>
-                <input
-                  value={loyaltyPerk}
-                  onChange={(event) => setLoyaltyPerk(event.target.value)}
+                <span className="text-xs uppercase tracking-wide text-slate-400">Strategy</span>
+                <select
+                  value={strategy}
+                  onChange={(event) => setStrategy(event.target.value)}
                   className="rounded-lg border border-slate-800 bg-slate-950 px-3 py-2 text-sm text-white focus:border-emerald-500 focus:outline-none"
-                />
+                >
+                  {strategyOptions[mode].map((option) => (
+                    <option key={option.id} value={option.id}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
+                <span className="text-xs text-slate-400">{strategyOptions[mode].find((item) => item.id === strategy)?.description}</span>
               </label>
-            ) : (
-              <div className="rounded-lg border border-slate-800 bg-slate-950 px-4 py-3 text-xs text-slate-400">
-                Scale intensity gradually to keep guardrails within limits.
-              </div>
-            )}
-          </div>
+              <label className="flex flex-col gap-2 text-sm">
+                <span className="text-xs uppercase tracking-wide text-slate-400">Channel focus</span>
+                <select
+                  value={channelFocus}
+                  onChange={(event) => setChannelFocus(event.target.value)}
+                  className="rounded-lg border border-slate-800 bg-slate-950 px-3 py-2 text-sm text-white focus:border-emerald-500 focus:outline-none"
+                >
+                  {channelPresets[mode].map((item) => (
+                    <option key={item} value={item}>
+                      {item}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="flex flex-col gap-2 text-sm">
+                <span className="text-xs uppercase tracking-wide text-slate-400">Cadence</span>
+                <select
+                  value={cadence}
+                  onChange={(event) => setCadence(event.target.value)}
+                  className="rounded-lg border border-slate-800 bg-slate-950 px-3 py-2 text-sm text-white focus:border-emerald-500 focus:outline-none"
+                >
+                  {cadencePresets[mode].map((item) => (
+                    <option key={item} value={item}>
+                      {item}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              {mode === 'grow' ? (
+                <label className="flex flex-col gap-2 text-sm">
+                  <span className="text-xs uppercase tracking-wide text-slate-400">Loyalty perk</span>
+                  <input
+                    value={loyaltyPerk}
+                    onChange={(event) => setLoyaltyPerk(event.target.value)}
+                    className="rounded-lg border border-slate-800 bg-slate-950 px-3 py-2 text-sm text-white focus:border-emerald-500 focus:outline-none"
+                  />
+                </label>
+              ) : null}
+              {mode === 'retain' ? (
+                <label className="flex flex-col gap-2 text-sm md:col-span-2">
+                  <span className="text-xs uppercase tracking-wide text-slate-400">Outreach sequence</span>
+                  <textarea
+                    value={creativeAngle}
+                    onChange={(event) => setCreativeAngle(event.target.value)}
+                    rows={3}
+                    className="rounded-lg border border-slate-800 bg-slate-950 px-3 py-2 text-sm text-white focus:border-emerald-500 focus:outline-none"
+                  />
+                  <span className="text-xs text-slate-400">Layer proactive outreach by channel to prevent churn.</span>
+                </label>
+              ) : (
+                <label className="flex flex-col gap-2 text-sm md:col-span-2">
+                  <span className="text-xs uppercase tracking-wide text-slate-400">Creative / messaging angle</span>
+                  <textarea
+                    value={creativeAngle}
+                    onChange={(event) => setCreativeAngle(event.target.value)}
+                    rows={3}
+                    className="rounded-lg border border-slate-800 bg-slate-950 px-3 py-2 text-sm text-white focus:border-emerald-500 focus:outline-none"
+                  />
+                  <span className="text-xs text-slate-400">Keep copy aligned to lifecycle promise for this cohort.</span>
+                </label>
+              )}
+            </div>
+          )}
         </div>
 
+        {designMode === 'customize' ? (
+          <>
+            <div className="rounded-xl border border-slate-800 bg-slate-900/70 p-6">
+              <h2 className="text-lg font-semibold text-white">Pricing & incentive levers</h2>
+              <div className="mt-4 grid gap-4 md:grid-cols-3">
+                <label className="flex flex-col gap-2 text-sm">
+                  <span className="text-xs uppercase tracking-wide text-slate-400">Offer depth</span>
+                  <input
+                    type="number"
+                    value={priceDelta}
+                    onChange={(event) => setPriceDelta(Number(event.target.value) || 0)}
+                    className="rounded-lg border border-slate-800 bg-slate-950 px-3 py-2 text-sm text-white focus:border-emerald-500 focus:outline-none"
+                  />
+                  <span className="text-xs text-slate-400">
+                    {mode === 'acquire' ? 'Promo value ($)' : mode === 'grow' ? 'Price delta ($)' : 'Save incentive (%)'}
+                  </span>
+                </label>
+                <label className="flex flex-col gap-2 text-sm">
+                  <span className="text-xs uppercase tracking-wide text-slate-400">Incentive cap</span>
+                  <input
+                    type="number"
+                    value={incentiveCap}
+                    onChange={(event) => setIncentiveCap(Number(event.target.value) || 0)}
+                    className="rounded-lg border border-slate-800 bg-slate-950 px-3 py-2 text-sm text-white focus:border-emerald-500 focus:outline-none"
+                  />
+                  <span className="text-xs text-slate-400">Protect margin across channels.</span>
+                </label>
+                {mode === 'grow' ? (
+                  <label className="flex flex-col gap-2 text-sm">
+                    <span className="text-xs uppercase tracking-wide text-slate-400">Loyalty perk</span>
+                    <input
+                      value={loyaltyPerk}
+                      onChange={(event) => setLoyaltyPerk(event.target.value)}
+                      className="rounded-lg border border-slate-800 bg-slate-950 px-3 py-2 text-sm text-white focus:border-emerald-500 focus:outline-none"
+                    />
+                  </label>
+                ) : (
+                  <div className="rounded-lg border border-slate-800 bg-slate-950 px-4 py-3 text-xs text-slate-400">
+                    Scale intensity gradually to keep guardrails within limits.
+                  </div>
+                )}
+              </div>
+            </div>
+
+            <div className="rounded-xl border border-slate-800 bg-slate-900/70 p-6">
+              <h2 className="text-lg font-semibold text-white">Budget & constraints</h2>
+              <div className="mt-4 grid gap-4 md:grid-cols-4">
+                <label className="flex flex-col gap-2 text-sm md:col-span-2">
+                  <span className="text-xs uppercase tracking-wide text-slate-400">Total budget</span>
+                  <input
+                    type="number"
+                    value={budget}
+                    onChange={(event) => setBudget(Number(event.target.value) || 0)}
+                    className="rounded-lg border border-slate-800 bg-slate-950 px-3 py-2 text-sm text-white focus:border-emerald-500 focus:outline-none"
+                  />
+                </label>
+                <label className="flex flex-col gap-2 text-sm">
+                  <span className="text-xs uppercase tracking-wide text-slate-400">Daily cap</span>
+                  <input
+                    type="number"
+                    value={dailyCap}
+                    onChange={(event) => setDailyCap(Number(event.target.value) || 0)}
+                    className="rounded-lg border border-slate-800 bg-slate-950 px-3 py-2 text-sm text-white focus:border-emerald-500 focus:outline-none"
+                  />
+                </label>
+                <label className="flex flex-col gap-2 text-sm">
+                  <span className="text-xs uppercase tracking-wide text-slate-400">Pacing</span>
+                  <select
+                    value={pacing}
+                    onChange={(event) => setPacing(event.target.value)}
+                    className="rounded-lg border border-slate-800 bg-slate-950 px-3 py-2 text-sm text-white focus:border-emerald-500 focus:outline-none"
+                  >
+                    {cadencePresets[mode].map((item) => (
+                      <option key={item} value={item}>
+                        {item}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              </div>
+              <label className="mt-4 flex items-center gap-3 text-sm text-slate-300">
+                <input
+                  type="checkbox"
+                  checked={cannibalizationGuardrail}
+                  onChange={(event) => setCannibalizationGuardrail(event.target.checked)}
+                  className="h-4 w-4 rounded border border-slate-700 bg-slate-950 text-emerald-500 focus:ring-emerald-500"
+                />
+                <span>{guardrailCopy[mode]}</span>
+              </label>
+            </div>
+
+            <div className="rounded-xl border border-slate-800 bg-slate-900/70 p-6">
+              <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+                <div>
+                  <div className="flex items-center gap-2">
+                    <h2 className="text-lg font-semibold text-white">Simulation</h2>
+                    <InfoIcon
+                      title="Simulation"
+                      body="Run the deterministic model to estimate reach, value, and risk before activation. Use it to validate guardrails prior to launch."
+                    />
+                  </div>
+                  <p className="text-sm text-slate-300">Stress test KPIs before handing the plan to Execution Hub.</p>
+                </div>
+                <button
+                  type="button"
+                  onClick={handleRunSimulation}
+                  disabled={!selectedSegment || simulation.loading}
+                  className="inline-flex items-center justify-center rounded-full bg-emerald-500 px-5 py-2 text-sm font-semibold text-slate-950 shadow-lg shadow-emerald-500/30 transition hover:bg-emerald-400 disabled:cursor-not-allowed disabled:bg-slate-700 disabled:text-slate-300 disabled:shadow-none"
+                >
+                  {simulation.loading ? 'Running…' : 'Run simulation'}
+                </button>
+              </div>
+              <div className="mt-4 grid gap-4 md:grid-cols-3">
+                {kpiCards.map((kpi) => (
+                  <div key={kpi.id} className="rounded-lg border border-slate-800 bg-slate-950/70 p-4">
+                    <p className="text-xs uppercase tracking-wide text-slate-400">{kpi.label}</p>
+                    <p className="mt-2 text-xl font-semibold text-white">{kpi.value}</p>
+                    <p className="text-xs text-slate-400">{kpi.helper}</p>
+                  </div>
+                ))}
+                {!kpiCards.length ? (
+                  <div className="rounded-lg border border-slate-800 bg-slate-950/70 p-4 text-sm text-slate-400">
+                    Lock a segment in Segment Studio to view KPI projections.
+                  </div>
+                ) : null}
+              </div>
+              {simulationFlags.length ? (
+                <div className="mt-4 rounded-lg border border-amber-500/40 bg-amber-500/10 p-4 text-xs text-amber-200">
+                  <p className="font-semibold uppercase tracking-wide">Simulation flags</p>
+                  <ul className="mt-2 space-y-1">
+                    {simulationFlags.map((flag) => (
+                      <li key={flag}>{flag.replace(/_/g, ' ')}</li>
+                    ))}
+                  </ul>
+                </div>
+              ) : null}
+            </div>
+          </>
+        ) : null}
+
         <div className="rounded-xl border border-slate-800 bg-slate-900/70 p-6">
-          <h2 className="text-lg font-semibold text-white">Budget & constraints</h2>
-          <div className="mt-4 grid gap-4 md:grid-cols-4">
-            <label className="flex flex-col gap-2 text-sm md:col-span-2">
-              <span className="text-xs uppercase tracking-wide text-slate-400">Total budget</span>
-              <input
-                type="number"
-                value={budget}
-                onChange={(event) => setBudget(Number(event.target.value) || 0)}
+          {designMode === 'customize' ? (
+            <label className="flex flex-col gap-2 text-sm">
+              <span className="text-xs uppercase tracking-wide text-slate-400">Notes for execution</span>
+              <textarea
+                value={notes}
+                onChange={(event) => setNotes(event.target.value)}
+                rows={3}
                 className="rounded-lg border border-slate-800 bg-slate-950 px-3 py-2 text-sm text-white focus:border-emerald-500 focus:outline-none"
               />
             </label>
-            <label className="flex flex-col gap-2 text-sm">
-              <span className="text-xs uppercase tracking-wide text-slate-400">Daily cap</span>
-              <input
-                type="number"
-                value={dailyCap}
-                onChange={(event) => setDailyCap(Number(event.target.value) || 0)}
-                className="rounded-lg border border-slate-800 bg-slate-950 px-3 py-2 text-sm text-white focus:border-emerald-500 focus:outline-none"
-              />
-            </label>
-            <label className="flex flex-col gap-2 text-sm">
-              <span className="text-xs uppercase tracking-wide text-slate-400">Pacing</span>
-              <select
-                value={pacing}
-                onChange={(event) => setPacing(event.target.value)}
-                className="rounded-lg border border-slate-800 bg-slate-950 px-3 py-2 text-sm text-white focus:border-emerald-500 focus:outline-none"
-              >
-                {cadencePresets[mode].map((item) => (
-                  <option key={item} value={item}>
-                    {item}
-                  </option>
-                ))}
-              </select>
-            </label>
-          </div>
-          <label className="mt-4 flex items-center gap-3 text-sm text-slate-300">
-            <input
-              type="checkbox"
-              checked={cannibalizationGuardrail}
-              onChange={(event) => setCannibalizationGuardrail(event.target.checked)}
-              className="h-4 w-4 rounded border border-slate-700 bg-slate-950 text-emerald-500 focus:ring-emerald-500"
-            />
-            <span>{guardrailCopy[mode]}</span>
-          </label>
-        </div>
-
-        <div className="rounded-xl border border-slate-800 bg-slate-900/70 p-6">
-          <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-            <div>
-              <h2 className="text-lg font-semibold text-white">Simulation</h2>
-              <p className="text-sm text-slate-300">Stress test KPIs before handing the plan to Execution Hub.</p>
-            </div>
-            <button
-              type="button"
-              onClick={handleRunSimulation}
-              disabled={!selectedSegment || simulation.loading}
-              className="inline-flex items-center justify-center rounded-full bg-emerald-500 px-5 py-2 text-sm font-semibold text-slate-950 shadow-lg shadow-emerald-500/30 transition hover:bg-emerald-400 disabled:cursor-not-allowed disabled:bg-slate-700 disabled:text-slate-300 disabled:shadow-none"
-            >
-              {simulation.loading ? 'Running…' : 'Run simulation'}
-            </button>
-          </div>
-          <div className="mt-4 grid gap-4 md:grid-cols-3">
-            {kpiCards.map((kpi) => (
-              <div key={kpi.id} className="rounded-lg border border-slate-800 bg-slate-950/70 p-4">
-                <p className="text-xs uppercase tracking-wide text-slate-400">{kpi.label}</p>
-                <p className="mt-2 text-xl font-semibold text-white">{kpi.value}</p>
-                <p className="text-xs text-slate-400">{kpi.helper}</p>
-              </div>
-            ))}
-            {!kpiCards.length ? (
-              <div className="rounded-lg border border-slate-800 bg-slate-950/70 p-4 text-sm text-slate-400">
-                Lock a segment in Segment Studio to view KPI projections.
-              </div>
-            ) : null}
-          </div>
-          {simulationFlags.length ? (
-            <div className="mt-4 rounded-lg border border-amber-500/40 bg-amber-500/10 p-4 text-xs text-amber-200">
-              <p className="font-semibold uppercase tracking-wide">Simulation flags</p>
-              <ul className="mt-2 space-y-1">
-                {simulationFlags.map((flag) => (
-                  <li key={flag}>{flag.replace(/_/g, ' ')}</li>
-                ))}
-              </ul>
-            </div>
-          ) : null}
-        </div>
-
-        <div className="rounded-xl border border-slate-800 bg-slate-900/70 p-6">
-          <label className="flex flex-col gap-2 text-sm">
-            <span className="text-xs uppercase tracking-wide text-slate-400">Notes for execution</span>
-            <textarea
-              value={notes}
-              onChange={(event) => setNotes(event.target.value)}
-              rows={3}
-              className="rounded-lg border border-slate-800 bg-slate-950 px-3 py-2 text-sm text-white focus:border-emerald-500 focus:outline-none"
-            />
-          </label>
+          ) : (
+            <p className="text-sm text-slate-300">
+              We’ve prefed the campaign with lifecycle-aligned copy and guardrails. Launch as-is or edit the details before pushing to Execution Hub.
+            </p>
+          )}
           <div className="mt-6 flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
             <p className="text-sm text-slate-300">
-              Push the plan to Execution Hub once simulation clears guardrails. Monitoring will pick up the planId automatically.
+              {designMode === 'recommend'
+                ? 'Build the auto-generated plan and hand off to Execution Hub, or switch to Customize for granular control.'
+                : 'Push the plan to Execution Hub once simulation clears guardrails. Monitoring will pick up the planId automatically.'}
             </p>
-            <button
-              type="button"
-              onClick={handlePushPlan}
-              disabled={!selectedSegment || pushLoading}
-              className="inline-flex items-center justify-center rounded-full bg-emerald-500 px-6 py-2 text-sm font-semibold text-slate-950 shadow-lg shadow-emerald-500/30 transition hover:bg-emerald-400 disabled:cursor-not-allowed disabled:bg-slate-700 disabled:text-slate-300 disabled:shadow-none"
-            >
-              {pushLoading ? 'Pushing…' : 'Push plan → Execution Hub'}
-            </button>
+            <div className="flex flex-wrap items-center gap-3">
+              <button
+                type="button"
+                onClick={handlePushPlan}
+                disabled={!selectedSegment || pushLoading}
+                className="inline-flex items-center justify-center rounded-full bg-emerald-500 px-6 py-2 text-sm font-semibold text-slate-950 shadow-lg shadow-emerald-500/30 transition hover:bg-emerald-400 disabled:cursor-not-allowed disabled:bg-slate-700 disabled:text-slate-300 disabled:shadow-none"
+              >
+                {pushLoading
+                  ? designMode === 'recommend'
+                    ? 'Building…'
+                    : 'Pushing…'
+                  : designMode === 'recommend'
+                  ? 'Build my plan'
+                  : 'Push plan → Execution Hub'}
+              </button>
+              {designMode === 'recommend' ? (
+                <button
+                  type="button"
+                  onClick={() => setDesignMode('customize')}
+                  className="rounded-full border border-slate-700 px-5 py-2 text-sm text-slate-200 transition hover:bg-slate-900"
+                >
+                  Edit details
+                </button>
+              ) : null}
+            </div>
           </div>
         </div>
       </div>
-      <div>
-        <PlaybookPreview mode={mode} selectedSegment={selectedSegment} draftPlan={previewDraft} guardrails={previewGuardrails} />
-      </div>
+      <aside className="mt-6 space-y-4 lg:mt-0 lg:sticky lg:top-28">
+        <div className="rounded-xl border border-slate-800 bg-slate-900/70 p-5">
+          <div className="flex items-center justify-between gap-2">
+            <div className="flex items-center gap-2">
+              <h3 className="text-sm font-semibold uppercase tracking-wide text-slate-300">Creative preview</h3>
+              <InfoIcon
+                title="Creative"
+                body="Drop a reference image or upload a mock to preview the creative framing. This stays in design and doesn’t touch production assets."
+              />
+            </div>
+            <span className="text-[11px] uppercase tracking-wide text-slate-500">Channel: {activeChannel}</span>
+          </div>
+          <div className="mt-3 flex flex-wrap gap-2">
+            {(['Email', 'SMS', 'Ad', 'Landing'] as const).map((channel) => (
+              <button
+                key={channel}
+                type="button"
+                onClick={() => setActiveChannel(channel)}
+                aria-pressed={activeChannel === channel}
+                className={`rounded-full px-3 py-1 text-xs font-semibold transition ${
+                  activeChannel === channel
+                    ? 'bg-emerald-500 text-slate-950 shadow-lg shadow-emerald-500/30'
+                    : 'border border-slate-700 text-slate-300 hover:bg-slate-800'
+                }`}
+              >
+                {channel}
+              </button>
+            ))}
+          </div>
+          <div className="mt-4">
+            <div className="mb-3 flex h-40 items-center justify-center rounded-lg border-2 border-dashed border-slate-700 bg-slate-950 text-slate-400">
+              {creativeImage ? (
+                <img src={creativeImage} alt={`${activeChannel} creative preview`} className="h-full w-full rounded-lg object-cover" />
+              ) : (
+                <span className="text-xs">
+                  Placeholder image — Drop here or{' '}
+                  <button
+                    type="button"
+                    onClick={() => fileInputRef.current?.click()}
+                    className="font-semibold text-emerald-300 underline"
+                  >
+                    Upload
+                  </button>
+                </span>
+              )}
+            </div>
+            <input ref={fileInputRef} type="file" accept="image/*" className="hidden" onChange={handleImageUpload} />
+            {renderEditable('subject', 'Subject line', subjectLine, setSubjectLine)}
+            {renderEditable('headline', 'Headline', headlineCopy, setHeadlineCopy)}
+            {renderEditable('subhead', 'Subhead', subheadCopy, setSubheadCopy, true)}
+            {renderEditable('offer', 'Offer detail', offerCopy, setOfferCopy, true)}
+            {renderEditable('cta', 'CTA', ctaCopy, setCtaCopy)}
+            {renderBullet(0)}
+            {renderBullet(1)}
+            {renderBullet(2)}
+          </div>
+        </div>
+        <div className="rounded-xl border border-slate-800 bg-slate-900/70 p-5">
+          <div className="flex items-center justify-between">
+            <h3 className="text-sm font-semibold uppercase tracking-wide text-slate-300">Impact scorecard</h3>
+            <span className="text-[11px] uppercase tracking-wide text-slate-500">Live preview</span>
+          </div>
+          {scoreTiles.length ? (
+            <div className="mt-4 grid gap-3 sm:grid-cols-2">
+              {scoreTiles.map((tile) => (
+                <div key={tile.id} className="rounded-lg border border-slate-800 bg-slate-950/70 p-4">
+                  <p className="text-xs uppercase tracking-wide text-slate-400">{tile.label}</p>
+                  <p className="mt-2 text-xl font-semibold text-white">{tile.value}</p>
+                  <p className="text-xs text-slate-400">{tile.helper}</p>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <p className="mt-4 text-sm text-slate-400">Select a segment to unlock projected impact.</p>
+          )}
+        </div>
+      </aside>
     </div>
+  </div>
   );
 };
 
