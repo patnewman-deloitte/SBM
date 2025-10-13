@@ -1,6 +1,7 @@
 import React from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { Mode, useAppState } from '../appState';
+import InfoIcon from '../components/InfoIcon';
 
 type ChannelKey = 'search' | 'social' | 'email' | 'retail' | 'field';
 
@@ -352,12 +353,13 @@ const ExecutionHub: React.FC = () => {
 
           <div>
             <div className="mb-3 flex items-center justify-between">
-              <h3 className="text-sm font-semibold uppercase tracking-wide text-slate-300">
-                Performance snapshot
-                <span className="ml-2 text-slate-500" title="Blends modeled + live telemetry">
-                  ℹ
-                </span>
-              </h3>
+              <div className="flex items-center gap-2">
+                <h3 className="text-sm font-semibold uppercase tracking-wide text-slate-300">Performance snapshot</h3>
+                <InfoIcon
+                  title="Performance snapshot"
+                  body="Blend of modeled projections and live telemetry. Use it to gauge readiness before launching or pausing channels."
+                />
+              </div>
             </div>
             <div className="grid gap-3 md:grid-cols-3 xl:grid-cols-6">
               {performanceTiles.map((tile) => (
@@ -372,10 +374,13 @@ const ExecutionHub: React.FC = () => {
 
           <div className="rounded-xl border border-slate-800 bg-slate-950/70 p-5">
             <div className="flex items-center justify-between">
-              <h3 className="text-sm font-semibold uppercase tracking-wide text-slate-300">
-                Channel breakdown
-                <span className="ml-2 text-slate-500" title="Allocation vs CVR contribution">ℹ</span>
-              </h3>
+              <div className="flex items-center gap-2">
+                <h3 className="text-sm font-semibold uppercase tracking-wide text-slate-300">Channel breakdown</h3>
+                <InfoIcon
+                  title="Channel breakdown"
+                  body="Compare allocation percentage against conversion contribution. Adjust mix in the console to shift impact."
+                />
+              </div>
               <p className="text-xs text-slate-400">Readiness {readinessPct}%</p>
             </div>
             <div className="mt-4">
@@ -422,10 +427,13 @@ const ExecutionHub: React.FC = () => {
 
           <div className="grid gap-4 lg:grid-cols-2">
             <div className="rounded-xl border border-slate-800 bg-slate-950/70 p-5">
-              <h3 className="text-sm font-semibold uppercase tracking-wide text-slate-300">
-                Optimization console
-                <span className="ml-2 text-slate-500" title="Adjust channel mix and economics">ℹ</span>
-              </h3>
+              <div className="flex items-center gap-2">
+                <h3 className="text-sm font-semibold uppercase tracking-wide text-slate-300">Optimization console</h3>
+                <InfoIcon
+                  title="Optimization console"
+                  body="Tune channel mix sliders and economic levers. Changes update readiness and KPIs instantly before you launch."
+                />
+              </div>
               <div className="mt-4 space-y-4">
                 {channelOrder.map((key) => (
                   <div key={key} className="space-y-1">

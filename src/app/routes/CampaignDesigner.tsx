@@ -1,7 +1,8 @@
 import React from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Mode, useAppState } from '../../appState';
+import { Mode, aggregateSubsegments, useAppState } from '../../appState';
 import { offersAPI, execAPI } from '../../mocks';
+import InfoIcon from '../../components/InfoIcon';
 
 const capitalise = (value: string) => value.charAt(0).toUpperCase() + value.slice(1);
 
@@ -48,7 +49,7 @@ const guardrailCopy = {
 
 const recommendedCreativeCopy: Record<
   Mode,
-  (segmentName?: string) => {
+  (segmentName?: string, trait?: string) => {
     subject: string;
     headline: string;
     subhead: string;
@@ -57,39 +58,42 @@ const recommendedCreativeCopy: Record<
     offer: string;
   }
 > = {
-  acquire: (segmentName) => ({
+  acquire: (segmentName, trait) => ({
     subject: 'Unlock $20/mo when you move to 5G Family',
     headline: 'Unlock $20/mo when you move to 5G Family',
-    subhead: `${segmentName ?? 'High-value households'} get priority activation plus device credits.`,
+    subhead: `${segmentName ?? 'High-value households'}${trait ? ` — ${trait}` : ''} get priority activation plus device credits.`,
     bullets: [
+      trait ? `Focus: ${trait}` : null,
       'Priority install within 72 hours',
       'Waived activation and upgrade fees',
       'Bundle mobile + home for extra $15/mo off',
-    ],
+    ].filter(Boolean) as string[],
     cta: 'Claim your 5G Family offer',
     offer: 'Limited-time credit applied to your first 6 months.',
   }),
-  grow: (segmentName) => ({
+  grow: (segmentName, trait) => ({
     subject: 'Upgrade to Premium 5G — add Home Internet & save',
     headline: 'Upgrade to Premium 5G — add Home Internet & save',
-    subhead: `${segmentName ?? 'Members'} unlock bundled savings with premium care.`,
+    subhead: `${segmentName ?? 'Members'}${trait ? ` — ${trait}` : ''} unlock bundled savings with premium care.`,
     bullets: [
+      trait ? `Focus: ${trait}` : null,
       'Premium speed upgrade in minutes',
       'Add Home Internet for $25/mo less',
       'Loyalty perk: priority support & device savings',
-    ],
+    ].filter(Boolean) as string[],
     cta: 'Build my premium bundle',
     offer: 'Bundle mobile + home internet and save $25/mo.',
   }),
-  retain: (segmentName) => ({
+  retain: (segmentName, trait) => ({
     subject: 'We’ve got you — stay and save with priority care',
     headline: 'We’ve got you — stay and save with priority care',
-    subhead: `${segmentName ?? 'Members'} keep perks, credits, and fast-track support.`,
+    subhead: `${segmentName ?? 'Members'}${trait ? ` — ${trait}` : ''} keep perks, credits, and fast-track support.`,
     bullets: [
+      trait ? `Focus: ${trait}` : null,
       'Immediate bill relief credit',
       'Dedicated care hotline & callbacks',
       'Device protection included for 12 months',
-    ],
+    ].filter(Boolean) as string[],
     cta: 'Stay with priority care',
     offer: 'Keep your plan and unlock a loyalty credit this cycle.',
   }),
@@ -140,7 +144,7 @@ function predict(mode: Mode, pop: number, form: PredictForm) {
 
 const CampaignDesigner: React.FC = () => {
   const navigate = useNavigate();
-  const { mode, selectedSegment, setStep, setPlanId } = useAppState();
+  const { mode, selectedSegment, selectedSubsegments, setStep, setPlanId } = useAppState();
 
   const [designMode, setDesignMode] = React.useState<'recommend' | 'customize'>('recommend');
   const [activeChannel, setActiveChannel] = React.useState<'Email' | 'SMS' | 'Ad' | 'Landing'>('Email');
@@ -169,8 +173,32 @@ const CampaignDesigner: React.FC = () => {
   const [simulation, setSimulation] = React.useState<SimulationState>({ loading: false });
   const [pushLoading, setPushLoading] = React.useState(false);
 
+  const aggregatedSubsegments = React.useMemo(
+    () => (selectedSubsegments.length ? aggregateSubsegments(selectedSubsegments) : null),
+    [selectedSubsegments]
+  );
+
+  const dominantTrait = React.useMemo(() => {
+    if (!selectedSubsegments.length) return undefined;
+    const tally = new Map<string, number>();
+    selectedSubsegments.forEach((sub) => {
+      sub.traits.forEach((trait) => {
+        tally.set(trait, (tally.get(trait) ?? 0) + 1);
+      });
+    });
+    let best: string | undefined;
+    let max = 0;
+    tally.forEach((count, trait) => {
+      if (count > max) {
+        max = count;
+        best = trait;
+      }
+    });
+    return best;
+  }, [selectedSubsegments]);
+
   const applyRecommendedCreative = React.useCallback(() => {
-    const template = recommendedCreativeCopy[mode](selectedSegment?.name);
+    const template = recommendedCreativeCopy[mode](selectedSegment?.name, dominantTrait);
     setSubjectLine(template.subject);
     setHeadlineCopy(template.headline);
     setSubheadCopy(template.subhead);
@@ -183,7 +211,7 @@ const CampaignDesigner: React.FC = () => {
       }
       return base;
     });
-  }, [mode, selectedSegment?.name]);
+  }, [dominantTrait, mode, selectedSegment?.name]);
 
   React.useEffect(() => {
     if (designMode === 'recommend') {
@@ -428,7 +456,9 @@ const CampaignDesigner: React.FC = () => {
     const planPayload = {
       id: `${strategy}-${Date.now().toString(36)}`,
       name: resolvedPlanName,
-      cohorts: [selectedSegment],
+      cohorts: selectedSubsegments.length
+        ? selectedSubsegments.map((sub) => ({ id: sub.id, name: sub.label, size: sub.population }))
+        : [selectedSegment],
       channels: {
         digital: Number(digitalShare.toFixed(2)),
         humanAssist: Number(humanShare.toFixed(2)),
@@ -457,64 +487,95 @@ const CampaignDesigner: React.FC = () => {
 
   return (
     <div className="space-y-4">
-    {!selectedSegment ? (
-      <div className="flex flex-wrap items-center gap-3 rounded-lg border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm text-amber-200">
-        <span>Select and send a segment from Segment Studio.</span>
-        <button
-          type="button"
-          onClick={() => navigate('/segment-studio')}
-          className="rounded-full border border-amber-400/50 px-3 py-1 text-xs font-semibold text-amber-100 transition hover:bg-amber-500/20"
-        >
-          Go to Segment Studio
-        </button>
-      </div>
-    ) : null}
+      {!selectedSegment ? (
+        <div className="flex flex-wrap items-center gap-3 rounded-lg border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm text-amber-200">
+          <span>Select and send a segment from Segment Studio.</span>
+          <button
+            type="button"
+            onClick={() => navigate('/segment-studio')}
+            className="rounded-full border border-amber-400/50 px-3 py-1 text-xs font-semibold text-amber-100 transition hover:bg-amber-500/20"
+          >
+            Go to Segment Studio
+          </button>
+        </div>
+      ) : null}
       <div className="lg:grid lg:grid-cols-[minmax(0,1fr)_360px] lg:items-start lg:gap-6">
         <div className="space-y-6">
-        <div className="rounded-xl border border-slate-800 bg-slate-900/70 p-6">
-          <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
-            <div>
-              <p className="text-xs uppercase tracking-[0.3em] text-emerald-400">Step 3 · Offer & Campaign Designer</p>
-              <h1 className="mt-2 text-2xl font-semibold text-white">Shape the lifecycle play</h1>
-              <p className="mt-2 max-w-2xl text-sm text-slate-300">
-                Select the lifecycle strategy, tune pricing and incentives, pace spend, then simulate impact before handing off to execution.
-              </p>
+          <div className="rounded-xl border border-slate-800 bg-slate-900/70 p-6">
+            <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
+              <div>
+                <p className="text-xs uppercase tracking-[0.3em] text-emerald-400">Step 3 · Offer & Campaign Designer</p>
+                <div className="mt-2 flex items-center gap-2">
+                  <h1 className="text-2xl font-semibold text-white">Shape the lifecycle play</h1>
+                  <InfoIcon
+                    title="Campaign Designer"
+                    body="Get an instant recommended plan aligned to your mode and audience, or switch to Customize for deeper control across copy, offers, and channels."
+                  />
+                </div>
+                <p className="mt-2 max-w-2xl text-sm text-slate-300">
+                  Select the lifecycle strategy, tune pricing and incentives, pace spend, then simulate impact before handing off to execution.
+                </p>
+              </div>
             </div>
-          </div>
-          <div className="mt-4 flex gap-2">
-            <button
-              type="button"
-              onClick={() => setDesignMode('recommend')}
-              aria-pressed={designMode === 'recommend'}
-              className={`rounded-full px-3 py-1 text-sm transition ${
-                designMode === 'recommend'
-                  ? 'bg-emerald-600 text-white shadow-lg shadow-emerald-500/30'
-                  : 'border border-slate-700 text-slate-200 hover:bg-slate-800'
-              }`}
-            >
-              Recommend for me
-            </button>
-            <button
-              type="button"
-              onClick={() => setDesignMode('customize')}
-              aria-pressed={designMode === 'customize'}
-              className={`rounded-full px-3 py-1 text-sm transition ${
-                designMode === 'customize'
-                  ? 'bg-emerald-600 text-white shadow-lg shadow-emerald-500/30'
-                  : 'border border-slate-700 text-slate-200 hover:bg-slate-800'
-              }`}
-            >
-              Customize
-            </button>
-          </div>
-          <div className="mb-4 mt-4 flex flex-wrap items-center gap-2">
-            <span className="rounded-full border border-slate-800 bg-slate-900 px-3 py-1 text-xs capitalize text-slate-300">Mode: {mode}</span>
-            {selectedSegment ? (
-              <span className="rounded-full border border-emerald-700 bg-emerald-900/30 px-3 py-1 text-xs text-emerald-100">
-                Segment: {selectedSegment.name} • {selectedSegment.size.toLocaleString()} ppl
-              </span>
+            <div className="mt-4 flex flex-wrap items-center gap-3">
+              <div className="inline-flex items-center gap-2 rounded-full border border-slate-700 bg-slate-950/80 p-1">
+                <button
+                  type="button"
+                  onClick={() => setDesignMode('recommend')}
+                  aria-pressed={designMode === 'recommend'}
+                  className={`rounded-full px-4 py-1 text-sm font-semibold transition ${
+                    designMode === 'recommend'
+                      ? 'bg-emerald-600 text-white shadow-lg shadow-emerald-500/30'
+                      : 'text-slate-200 hover:bg-slate-800'
+                  }`}
+                >
+                  Recommend for me
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setDesignMode('customize')}
+                  aria-pressed={designMode === 'customize'}
+                  className={`rounded-full px-4 py-1 text-sm font-semibold transition ${
+                    designMode === 'customize'
+                      ? 'bg-emerald-600 text-white shadow-lg shadow-emerald-500/30'
+                      : 'text-slate-200 hover:bg-slate-800'
+                  }`}
+                >
+                  Customize
+                </button>
+              </div>
+              <InfoIcon
+                title="Design modes"
+                body="Use Recommend for a one-click campaign tuned to your dominant traits. Switch to Customize to edit every detail before handing off."
+              />
+            </div>
+            <div className="mb-4 mt-4 flex flex-wrap items-center gap-2">
+              <span className="rounded-full border border-slate-800 bg-slate-900 px-3 py-1 text-xs capitalize text-slate-300">Mode: {mode}</span>
+              {selectedSegment ? (
+                <span className="rounded-full border border-emerald-700 bg-emerald-900/30 px-3 py-1 text-xs text-emerald-100">
+                  Segment: {selectedSegment.name} • {selectedSegment.size.toLocaleString()} ppl
+                </span>
+              ) : (
+                <span className="rounded-full border border-amber-700 bg-amber-900/30 px-3 py-1 text-xs text-amber-200">No segment selected</span>
+              )}
+              {aggregatedSubsegments ? (
+                <span className="rounded-full border border-emerald-500/30 bg-emerald-500/10 px-3 py-1 text-xs font-semibold text-emerald-200">
+                  Targeting {aggregatedSubsegments.name} — {aggregatedSubsegments.size.toLocaleString()} ppl
+                </span>
+              ) : null}
+            </div>
+            {selectedSubsegments.length ? (
+              <div className="mb-4 flex flex-wrap items-center gap-2 text-xs">
+                {selectedSubsegments.map((subsegment) => (
+                  <span
+                    key={subsegment.id}
+                    className="rounded-full border border-slate-700 bg-slate-950 px-3 py-1 text-slate-200"
+                  >
+                    {subsegment.label} • {subsegment.population.toLocaleString()} ppl
+                  </span>
+                ))}
+              </div>
             ) : null}
-          </div>
           {designMode === 'recommend' ? (
             <div className="space-y-4">
               <p className="text-sm text-slate-300">
@@ -723,7 +784,13 @@ const CampaignDesigner: React.FC = () => {
             <div className="rounded-xl border border-slate-800 bg-slate-900/70 p-6">
               <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
                 <div>
-                  <h2 className="text-lg font-semibold text-white">Simulation</h2>
+                  <div className="flex items-center gap-2">
+                    <h2 className="text-lg font-semibold text-white">Simulation</h2>
+                    <InfoIcon
+                      title="Simulation"
+                      body="Run the deterministic model to estimate reach, value, and risk before activation. Use it to validate guardrails prior to launch."
+                    />
+                  </div>
                   <p className="text-sm text-slate-300">Stress test KPIs before handing the plan to Execution Hub.</p>
                 </div>
                 <button
@@ -815,8 +882,14 @@ const CampaignDesigner: React.FC = () => {
       </div>
       <aside className="mt-6 space-y-4 lg:mt-0 lg:sticky lg:top-28">
         <div className="rounded-xl border border-slate-800 bg-slate-900/70 p-5">
-          <div className="flex items-center justify-between">
-            <h3 className="text-sm font-semibold uppercase tracking-wide text-slate-300">Creative preview</h3>
+          <div className="flex items-center justify-between gap-2">
+            <div className="flex items-center gap-2">
+              <h3 className="text-sm font-semibold uppercase tracking-wide text-slate-300">Creative preview</h3>
+              <InfoIcon
+                title="Creative"
+                body="Drop a reference image or upload a mock to preview the creative framing. This stays in design and doesn’t touch production assets."
+              />
+            </div>
             <span className="text-[11px] uppercase tracking-wide text-slate-500">Channel: {activeChannel}</span>
           </div>
           <div className="mt-3 flex flex-wrap gap-2">

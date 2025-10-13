@@ -2,7 +2,8 @@ import React from 'react';
 import { useNavigate } from 'react-router-dom';
 import PlaybookPreview from '../../components/PlaybookPreview';
 import { useToast } from '../../components/ToastProvider';
-import { Mode, useAppState } from '../../appState';
+import InfoIcon from '../../components/InfoIcon';
+import { Mode, Subsegment, aggregateSubsegments, useAppState } from '../../appState';
 
 const capitalise = (value: string) => value.charAt(0).toUpperCase() + value.slice(1);
 
@@ -166,6 +167,45 @@ const scoreLabel = (candidate: SegmentCandidate, mode: Mode) => {
   return `${score}% save lift`;
 };
 
+const InlineSpark: React.FC<{ seed: string; base: number }> = ({ seed, base }) => {
+  const values = React.useMemo(() => {
+    const code = seed.split('').reduce((sum, char) => sum + char.charCodeAt(0), 0);
+    return Array.from({ length: 8 }, (_, index) => {
+      const angle = ((code % 240) / 240 + index / 6) * Math.PI * 2;
+      const swing = Math.sin(angle) * 0.08;
+      return Number(Math.max(0.2, base + swing).toFixed(3));
+    });
+  }, [base, seed]);
+
+  if (!values.length) {
+    return <div className="mt-2 h-8 rounded bg-slate-900/70" />;
+  }
+
+  const min = Math.min(...values);
+  const max = Math.max(...values);
+  const range = max - min || 1;
+  const points = values
+    .map((value, index) => {
+      const x = (index / (values.length - 1 || 1)) * 100;
+      const y = 100 - ((value - min) / range) * 100;
+      return `${x},${y}`;
+    })
+    .join(' ');
+
+  return (
+    <svg viewBox="0 0 100 100" className="mt-2 h-8 w-full text-emerald-400/70" preserveAspectRatio="none">
+      <polyline
+        points={points}
+        fill="none"
+        stroke="currentColor"
+        strokeWidth={2}
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+};
+
 const matchToken = (value: string, tokens: string[]) => {
   const lower = value.toLowerCase();
   return tokens.some((token) => lower.includes(token.toLowerCase()));
@@ -173,7 +213,7 @@ const matchToken = (value: string, tokens: string[]) => {
 
 const SegmentStudio: React.FC = () => {
   const navigate = useNavigate();
-  const { mode, selectedSegment, setSelectedSegment } = useAppState();
+  const { mode, selectedSegment, selectedSubsegments, setSelectedSegment, setSelectedSubsegments } = useAppState();
   const { pushToast } = useToast();
   const segments = React.useMemo(() => segmentCatalog[mode], [mode]);
 
@@ -182,6 +222,10 @@ const SegmentStudio: React.FC = () => {
   const [includeInput, setIncludeInput] = React.useState('');
   const [excludeInput, setExcludeInput] = React.useState('');
   const [includeLogic, setIncludeLogic] = React.useState<'and' | 'or'>('and');
+  const [subsegments, setSubsegments] = React.useState<Subsegment[]>([]);
+  const [selectedIds, setSelectedIds] = React.useState<string[]>(() =>
+    selectedSubsegments.map((item) => item.id)
+  );
 
   React.useEffect(() => {
     setIncludeTags(includeSeeds[mode]);
@@ -229,6 +273,62 @@ const SegmentStudio: React.FC = () => {
     [activeId, filteredSegments]
   );
 
+  React.useEffect(() => {
+    if (!activeCandidate) {
+      setSubsegments([]);
+      setSelectedIds([]);
+      return;
+    }
+    const seed = (activeCandidate.id ?? 'segment').length;
+    const labels = [
+      'Top 20 DMAs',
+      'Rural DMAs',
+      'High price sensitivity',
+      'Device age > 24m',
+      'Premium plan',
+      'Light data',
+      'Heavy video',
+      'New movers',
+      'Tenure < 6m',
+      'Multi-line'
+    ];
+    const generated = Array.from({ length: 8 }, (_, index) => {
+      const traits = [labels[(index + 1) % labels.length], labels[(index + 3) % labels.length]];
+      const population = Math.max(
+        800,
+        Math.round(activeCandidate.size * (0.05 + ((index + seed) % 7) / 90))
+      );
+      const score = Number((0.55 + ((index + seed) % 5) * 0.04).toFixed(2));
+      return {
+        id: `${activeCandidate.id}-${index}`,
+        label: labels[index % labels.length],
+        population,
+        traits,
+        score
+      } satisfies Subsegment;
+    });
+    setSubsegments(generated);
+    const persisted = selectedSubsegments
+      .filter((item) => generated.some((candidate) => candidate.id === item.id))
+      .map((item) => item.id);
+    if (persisted.length) {
+      setSelectedIds(persisted);
+    } else {
+      setSelectedIds((prev) => prev.filter((id) => generated.some((item) => item.id === id)));
+    }
+  }, [activeCandidate, selectedSubsegments]);
+
+  const toggleSubsegment = React.useCallback((id: string) => {
+    setSelectedIds((prev) => (prev.includes(id) ? prev.filter((value) => value !== id) : [...prev, id]));
+  }, []);
+
+  const selectedSubs = React.useMemo(
+    () => subsegments.filter((item) => selectedIds.includes(item.id)),
+    [selectedIds, subsegments]
+  );
+
+  const selectedSummary = React.useMemo(() => aggregateSubsegments(selectedSubs), [selectedSubs]);
+
   const hasRules = React.useMemo(() => {
     const includeCount = includeTags.filter(Boolean).length;
     const excludeCount = excludeTags.filter(Boolean).length;
@@ -236,7 +336,12 @@ const SegmentStudio: React.FC = () => {
     return (activeCandidate?.drivers?.length ?? 0) > 0;
   }, [activeCandidate, excludeTags, includeTags]);
 
-  const canSend = Boolean(activeCandidate && activeCandidate.size >= 5000 && hasRules);
+  const canSend = Boolean(
+    activeCandidate &&
+      activeCandidate.size >= 5000 &&
+      hasRules &&
+      selectedSubs.length > 0
+  );
 
   const lockedSegment = selectedSegment;
 
@@ -262,9 +367,10 @@ const SegmentStudio: React.FC = () => {
   const handleSend = React.useCallback(() => {
     if (!activeCandidate || !canSend) return;
     setSelectedSegment({ id: activeCandidate.id, name: activeCandidate.name, size: activeCandidate.size });
+    setSelectedSubsegments(selectedSubs);
     pushToast({ description: 'Segment sent to Campaign Designer', variant: 'success' });
     navigate('/campaign-designer');
-  }, [activeCandidate, canSend, navigate, pushToast, setSelectedSegment]);
+  }, [activeCandidate, canSend, navigate, pushToast, selectedSubs, setSelectedSegment, setSelectedSubsegments]);
 
   const previewDraft = React.useMemo(() => {
     if (!lockedSegment) return undefined;
@@ -314,7 +420,13 @@ const SegmentStudio: React.FC = () => {
           <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
             <div>
               <p className="text-xs uppercase tracking-[0.3em] text-emerald-400">Step 2 · Segment Studio</p>
-              <h1 className="mt-2 text-2xl font-semibold text-white">Refine the audience for design</h1>
+              <div className="mt-2 flex items-center gap-2">
+                <h1 className="text-2xl font-semibold text-white">Refine the audience for design</h1>
+                <InfoIcon
+                  title="Segment Studio"
+                  body="Inspect include and exclude signals, choose a qualified cohort, and curate subsegments that will flow into Campaign Designer."
+                />
+              </div>
               <p className="mt-2 max-w-2xl text-sm text-slate-300">
                 Split shortlisted cohorts into include and exclude buckets, inspect delivery fit, and lock the right audience for the
                 {" "}
@@ -332,6 +444,10 @@ const SegmentStudio: React.FC = () => {
               <span className="rounded-full border border-emerald-500/40 bg-emerald-500/10 px-3 py-1 text-xs font-semibold text-emerald-200">
                 Include
               </span>
+              <InfoIcon
+                title="Include signals"
+                body="Add traits that must be present for the cohort to pass into design. Toggle AND/OR logic to tighten or broaden coverage."
+              />
               {includeTags.map((tag) => (
                 <span
                   key={tag}
@@ -369,6 +485,10 @@ const SegmentStudio: React.FC = () => {
               <span className="rounded-full border border-rose-500/40 bg-rose-500/10 px-3 py-1 text-xs font-semibold text-rose-200">
                 Exclude
               </span>
+              <InfoIcon
+                title="Exclude signals"
+                body="Layer out traits that would muddy campaign performance—credit risk, churn-prone behaviours, or off-target plans."
+              />
               {excludeTags.map((tag) => (
                 <span
                   key={tag}
@@ -456,7 +576,13 @@ const SegmentStudio: React.FC = () => {
 
         <div className="rounded-xl border border-slate-800 bg-slate-900/70 p-6">
           <div className="flex flex-col gap-2 border-b border-slate-800 pb-4">
-            <p className="text-xs uppercase tracking-[0.3em] text-slate-400">Active candidate</p>
+            <div className="flex items-center gap-2 text-xs uppercase tracking-[0.3em] text-slate-400">
+              <span>Active candidate</span>
+              <InfoIcon
+                title="Active candidate"
+                body="Review eligibility, consent, and cohort scale before you choose the subsegments that will progress into campaign design."
+              />
+            </div>
             <h2 className="text-xl font-semibold text-white">{activeCandidate?.name ?? 'No candidate selected'}</h2>
             <p className="text-sm text-slate-300">
               Size {activeCandidate ? activeCandidate.size.toLocaleString() : '—'} households · Risk / value {activeCandidate ? scoreLabel(activeCandidate, mode) : '—'}
@@ -474,18 +600,85 @@ const SegmentStudio: React.FC = () => {
               <p className="mt-1 text-xs text-slate-400">Ensure consent workflow clears before design.</p>
             </div>
           </div>
+
+          <div className="mt-6">
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+              <div className="flex items-center gap-2">
+                <h3 className="text-sm font-semibold uppercase tracking-wide text-slate-300">Subsegment builder</h3>
+                <InfoIcon
+                  title="Subsegments"
+                  body="Auto-suggested slices by DMA, tenure, device age, and price sensitivity. Check the ones you want to design for and see the combined reach update."
+                />
+              </div>
+              <span className="inline-flex items-center gap-2 rounded-full border border-emerald-500/40 bg-emerald-500/10 px-3 py-1 text-xs font-semibold text-emerald-200">
+                Selected: {selectedSubs.length} • {selectedSummary.size.toLocaleString()} ppl
+              </span>
+            </div>
+            <div className="mt-4 grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+              {subsegments.map((subsegment) => {
+                const checked = selectedIds.includes(subsegment.id);
+                return (
+                  <label
+                    key={subsegment.id}
+                    className={`rounded-lg border px-4 py-3 transition ${
+                      checked ? 'border-emerald-500/60 bg-emerald-500/10 shadow-lg shadow-emerald-500/20' : 'border-slate-800 bg-slate-950/70 hover:border-emerald-500/40'
+                    }`}
+                  >
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="flex items-start gap-3">
+                        <input
+                          type="checkbox"
+                          className="mt-1 h-4 w-4 rounded border-slate-700 bg-slate-900 text-emerald-500 focus:ring-emerald-500"
+                          checked={checked}
+                          onChange={() => toggleSubsegment(subsegment.id)}
+                          aria-label={`Select ${subsegment.label}`}
+                        />
+                        <div>
+                          <p className="text-sm font-semibold text-white">{subsegment.label}</p>
+                          <p className="text-xs text-slate-400">{subsegment.population.toLocaleString()} ppl</p>
+                          <div className="mt-2 flex flex-wrap gap-2">
+                            {subsegment.traits.map((trait) => (
+                              <span
+                                key={trait}
+                                className="rounded-full border border-slate-700 bg-slate-950 px-2 py-0.5 text-[11px] text-slate-300"
+                              >
+                                {trait}
+                              </span>
+                            ))}
+                          </div>
+                        </div>
+                      </div>
+                      <span className="rounded-full border border-slate-700 bg-slate-950 px-2 py-1 text-[11px] font-semibold text-emerald-200">
+                        {(subsegment.score ?? 0.6).toFixed(2)} fit
+                      </span>
+                    </div>
+                    <InlineSpark seed={subsegment.id} base={subsegment.score ?? 0.6} />
+                  </label>
+                );
+              })}
+              {!subsegments.length ? (
+                <div className="rounded-lg border border-slate-800 bg-slate-950/60 p-4 text-sm text-slate-400">
+                  Select a candidate cohort to generate subsegment ideas.
+                </div>
+              ) : null}
+            </div>
+          </div>
+
           <div className="mt-6 flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
             <p className="text-sm text-slate-300">
-              Send the highlighted cohort forward when the audience meets guardrails and has enough scale for campaign design.
+              Bundle the right slices to design against different value pools. Only selected subsegments will flow into Campaign Designer.
             </p>
-            <button
-              type="button"
-              onClick={handleSend}
-              className="inline-flex items-center justify-center rounded-full bg-emerald-500 px-6 py-2 text-sm font-semibold text-slate-950 shadow-lg shadow-emerald-500/30 transition hover:bg-emerald-400 disabled:cursor-not-allowed disabled:bg-slate-700 disabled:text-slate-300 disabled:shadow-none"
-              disabled={!canSend}
-            >
-              Send segment to Campaign Designer
-            </button>
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+              <button
+                type="button"
+                onClick={handleSend}
+                className="inline-flex items-center justify-center rounded-full bg-emerald-500 px-6 py-2 text-sm font-semibold text-slate-950 shadow-lg shadow-emerald-500/30 transition hover:bg-emerald-400 disabled:cursor-not-allowed disabled:bg-slate-700 disabled:text-slate-300 disabled:shadow-none"
+                disabled={!canSend}
+              >
+                Send selected subsegments to Campaign Designer
+              </button>
+              <span className="text-xs text-slate-400 sm:ml-3">Requires ≥ 5,000 ppl and guardrail rules.</span>
+            </div>
           </div>
         </div>
       </div>

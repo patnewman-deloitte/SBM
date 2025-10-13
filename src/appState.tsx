@@ -3,6 +3,14 @@ import React from 'react';
 export type Mode = 'acquire' | 'grow' | 'retain';
 export type Step = 1 | 2 | 3 | 4 | 5;
 
+export type Subsegment = {
+  id: string;
+  label: string;
+  population: number;
+  traits: string[];
+  score?: number;
+};
+
 export interface AppState {
   mode: Mode;
   setMode: (mode: Mode) => void;
@@ -12,6 +20,8 @@ export interface AppState {
   planId?: string;
   setSelectedSegment: (segment?: { id: string; name: string; size: number }) => void;
   setPlanId: (id?: string) => void;
+  selectedSubsegments: Subsegment[];
+  setSelectedSubsegments: (segments: Subsegment[]) => void;
 }
 
 const STORAGE_KEY = 'sbm-app-state';
@@ -22,6 +32,7 @@ type StoredState = {
   mode?: Mode;
   selectedSegment?: { id: string; name: string; size: number };
   planId?: string;
+  selectedSubsegments?: Subsegment[];
 };
 
 const readStorage = (): StoredState | null => {
@@ -55,11 +66,14 @@ export const AppStateProvider: React.FC<React.PropsWithChildren> = ({ children }
   const [step, setStep] = React.useState<Step>(1);
   const [selectedSegment, setSelectedSegmentState] = React.useState<AppState['selectedSegment']>(() => stored.current?.selectedSegment);
   const [planId, setPlanIdState] = React.useState<string | undefined>(() => stored.current?.planId);
+  const [selectedSubsegments, setSelectedSubsegments] = React.useState<Subsegment[]>(
+    () => stored.current?.selectedSubsegments ?? []
+  );
 
   React.useEffect(() => {
-    stored.current = { mode, selectedSegment, planId };
+    stored.current = { mode, selectedSegment, planId, selectedSubsegments };
     writeStorage(stored.current);
-  }, [mode, selectedSegment, planId]);
+  }, [mode, selectedSegment, planId, selectedSubsegments]);
 
   const value = React.useMemo<AppState>(
     () => ({
@@ -70,9 +84,11 @@ export const AppStateProvider: React.FC<React.PropsWithChildren> = ({ children }
       selectedSegment,
       planId,
       setSelectedSegment: setSelectedSegmentState,
-      setPlanId: setPlanIdState
+      setPlanId: setPlanIdState,
+      selectedSubsegments,
+      setSelectedSubsegments
     }),
-    [mode, step, selectedSegment, planId]
+    [mode, step, selectedSegment, planId, selectedSubsegments]
   );
 
   return <AppStateContext.Provider value={value}>{children}</AppStateContext.Provider>;
@@ -85,3 +101,9 @@ export const useAppState = () => {
   }
   return context;
 };
+
+export const aggregateSubsegments = (subs: Subsegment[]) => ({
+  id: subs.map((item) => item.id).join(','),
+  name: subs.length ? `${subs.length} subsegments` : '',
+  size: subs.reduce((total, item) => total + item.population, 0)
+});
