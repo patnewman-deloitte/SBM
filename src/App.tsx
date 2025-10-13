@@ -48,14 +48,25 @@ const App = () => {
     }
   }, [location.pathname, setStep]);
 
+  useEffect(() => {
+    const label = mode === 'acquire' ? 'Acquire' : mode === 'grow' ? 'Grow' : 'Retain';
+    document.title = `Subscriber Connect — ${label}`;
+  }, [mode]);
+
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100">
       <header className="sticky top-0 z-30 border-b border-slate-800 bg-slate-950/80 backdrop-blur">
         <div className="mx-auto flex max-w-7xl flex-col gap-4 px-6 py-4">
           <div className="flex flex-wrap items-center justify-between gap-4">
-            <div>
-              <p className="text-xs uppercase tracking-[0.3em] text-emerald-400">Subscriber Base Management</p>
-              <h1 className="text-2xl font-semibold text-white">Lifecycle Playbook</h1>
+            <div className="flex flex-col">
+              <span className="text-lg font-semibold tracking-wide">Subscriber Connect</span>
+              <span className="text-xs text-slate-400">
+                {mode === 'acquire'
+                  ? 'Find and win high-propensity households'
+                  : mode === 'grow'
+                  ? 'Lift ARPU with upgrades, bundles, and attach'
+                  : 'Protect at-risk customers and reduce churn'}
+              </span>
             </div>
             <div className="flex flex-col items-end gap-3 sm:flex-row sm:items-center sm:justify-end">
               <div className="rounded-full border border-slate-800 bg-slate-900 px-3 py-1 text-xs text-slate-300">

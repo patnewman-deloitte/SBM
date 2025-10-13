@@ -22,9 +22,19 @@ export interface AppState {
   setPlanId: (id?: string) => void;
   selectedSubsegments: Subsegment[];
   setSelectedSubsegments: (segments: Subsegment[]) => void;
+  monitor: {
+    auto: boolean;
+    period: '15s' | '1m' | '5m';
+    range: '7d' | '30d' | '90d';
+    groupBy: 'campaign' | 'channel' | 'cohort';
+    compare: 'none' | 'prevPeriod' | 'prevPlan';
+    focus?: { kpi: 'cvr' | 'arpu' | 'netAdds' | 'churn'; key?: string } | null;
+  };
+  setMonitor: (patch: Partial<AppState['monitor']>) => void;
 }
 
 const STORAGE_KEY = 'sbm-app-state';
+const MONITOR_STORAGE_KEY = 'sbm.monitor';
 
 const AppStateContext = React.createContext<AppState | undefined>(undefined);
 
@@ -34,6 +44,8 @@ type StoredState = {
   planId?: string;
   selectedSubsegments?: Subsegment[];
 };
+
+type StoredMonitor = AppState['monitor'];
 
 const readStorage = (): StoredState | null => {
   if (typeof window === 'undefined') return null;
@@ -56,10 +68,45 @@ const writeStorage = (state: StoredState) => {
   }
 };
 
+const readMonitor = (): StoredMonitor | null => {
+  if (typeof window === 'undefined') return null;
+  const raw = window.sessionStorage.getItem(MONITOR_STORAGE_KEY);
+  if (!raw) return null;
+  try {
+    return JSON.parse(raw) as StoredMonitor;
+  } catch (error) {
+    console.warn('Failed to parse monitor state from sessionStorage', error);
+    return null;
+  }
+};
+
+const writeMonitor = (state: StoredMonitor) => {
+  if (typeof window === 'undefined') return;
+  try {
+    window.sessionStorage.setItem(MONITOR_STORAGE_KEY, JSON.stringify(state));
+  } catch (error) {
+    console.warn('Failed to persist monitor state to sessionStorage', error);
+  }
+};
+
+const defaultMonitor: StoredMonitor = {
+  auto: true,
+  period: '15s',
+  range: '30d',
+  groupBy: 'channel',
+  compare: 'prevPeriod',
+  focus: null,
+};
+
 export const AppStateProvider: React.FC<React.PropsWithChildren> = ({ children }) => {
   const stored = React.useRef<StoredState | null>(null);
   if (stored.current === null) {
     stored.current = readStorage();
+  }
+
+  const storedMonitor = React.useRef<StoredMonitor | null>(null);
+  if (storedMonitor.current === null) {
+    storedMonitor.current = readMonitor();
   }
 
   const [mode, setModeState] = React.useState<Mode>(() => stored.current?.mode ?? 'acquire');
@@ -69,11 +116,16 @@ export const AppStateProvider: React.FC<React.PropsWithChildren> = ({ children }
   const [selectedSubsegments, setSelectedSubsegments] = React.useState<Subsegment[]>(
     () => stored.current?.selectedSubsegments ?? []
   );
+  const [monitorState, setMonitorState] = React.useState<StoredMonitor>(storedMonitor.current ?? defaultMonitor);
 
   React.useEffect(() => {
     stored.current = { mode, selectedSegment, planId, selectedSubsegments };
     writeStorage(stored.current);
   }, [mode, selectedSegment, planId, selectedSubsegments]);
+
+  React.useEffect(() => {
+    writeMonitor(monitorState);
+  }, [monitorState]);
 
   const value = React.useMemo<AppState>(
     () => ({
@@ -86,9 +138,13 @@ export const AppStateProvider: React.FC<React.PropsWithChildren> = ({ children }
       setSelectedSegment: setSelectedSegmentState,
       setPlanId: setPlanIdState,
       selectedSubsegments,
-      setSelectedSubsegments
+      setSelectedSubsegments,
+      monitor: monitorState,
+      setMonitor: (patch) => {
+        setMonitorState((prev) => ({ ...prev, ...patch }));
+      }
     }),
-    [mode, step, selectedSegment, planId, selectedSubsegments]
+    [mode, step, selectedSegment, planId, selectedSubsegments, monitorState]
   );
 
   return <AppStateContext.Provider value={value}>{children}</AppStateContext.Provider>;

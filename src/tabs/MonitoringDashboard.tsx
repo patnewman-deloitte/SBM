@@ -2,56 +2,80 @@ import React from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Mode, useAppState } from '../appState';
 import InfoIcon from '../components/InfoIcon';
-import { metricsAPI } from '../mocks';
-import { stepSeries, useTicker } from '../hooks/useLiveData';
 
-type MetricPoint = { t: number; value: number };
-type MetricBundle = { cvr: MetricPoint[]; arpu: MetricPoint[]; netAdds: MetricPoint[] };
+type ChannelKey = 'Search' | 'Social' | 'Email' | 'Retail' | 'Field';
 
-type ChannelKey = 'search' | 'social' | 'email' | 'retail' | 'field';
-const channelOrder: ChannelKey[] = ['search', 'social', 'email', 'retail', 'field'];
-
-const mixPresets: Record<Mode, Record<ChannelKey, number>> = {
-  acquire: { search: 32, social: 18, email: 24, retail: 14, field: 12 },
-  grow: { search: 18, social: 24, email: 26, retail: 18, field: 14 },
-  retain: { search: 14, social: 16, email: 32, retail: 12, field: 26 },
+type TimelineState = {
+  timestamps: number[];
+  cvr: number[];
+  arpu: number[];
+  netAdds: number[];
+  churn: number[];
+  active: number[];
 };
 
-const learningsByMode: Record<Mode, string[]> = {
-  acquire: [
-    'Search share correlated with higher CVR for fiber-ready metros.',
-    'Retail attach climbs when field teams seed local events.',
-    'Email drives higher ARPU when dynamic bundles are present.',
-  ],
-  grow: [
-    'Upsell journeys respond to limited-time loyalty perks.',
-    'Social carousel creative lifts ARPU by 0.8 when refreshed weekly.',
-    'Retail add-ons spike post-service touch with proactive consults.',
-  ],
-  retain: [
-    'Save-rate improves 1.5 pts when SMS is sequenced before IVR.',
-    'Service credits land best when paired with proactive care outreach.',
-    'Field visits stabilize churn for high-value households within 10 days.',
-  ],
+type ChannelSeries = Record<ChannelKey, number[]>;
+
+type KpiKey = 'activeCampaigns' | 'averageCvr' | 'arpuDelta' | 'netAdds' | 'churnDelta';
+type KpiMetric = 'active' | 'cvr' | 'arpu' | 'netAdds' | 'churn';
+
+type LegendVisibility = {
+  cvr: boolean;
+  arpu: boolean;
+  netAdds: boolean;
+};
+
+type ChannelVisibility = Record<ChannelKey, boolean>;
+
+type CohortDatum = { cohort: string; metrics: { label: string; value: number; metric: 'cvr' | 'arpu' }[] };
+
+type Anomaly = { metric: 'cvr' | 'arpu' | 'netAdds' | 'churn'; direction: 'up' | 'down'; z: number };
+
+type HoverTooltip = { id: KpiKey; x: number; y: number; value: string; delta?: string | null; baseline?: string };
+
+type ChartTooltip = { x: number; y: number; lines: Array<{ label: string; value: string }>; timestamp: string };
+
+const channelKeys: ChannelKey[] = ['Search', 'Social', 'Email', 'Retail', 'Field'];
+
+const rangePoints: Record<'7d' | '30d' | '90d', number> = {
+  '7d': 14,
+  '30d': 30,
+  '90d': 60,
+};
+
+const modeSeed: Record<Mode, number> = { acquire: 3, grow: 5, retain: 7 };
+const groupSeed: Record<'campaign' | 'channel' | 'cohort', number> = { campaign: 11, channel: 19, cohort: 29 };
+const rangeSeed: Record<'7d' | '30d' | '90d', number> = { '7d': 13, '30d': 17, '90d': 23 };
+
+const baseSeeds: Record<Mode, { cvr: number; arpu: number; netAdds: number; churn: number; active: number }> = {
+  acquire: { cvr: 0.041, arpu: 7.4, netAdds: 2400, churn: 0.008, active: 18 },
+  grow: { cvr: 0.053, arpu: 9.6, netAdds: 1850, churn: 0.011, active: 15 },
+  retain: { cvr: 0.033, arpu: 5.1, netAdds: 1620, churn: 0.015, active: 12 },
+};
+
+const baseChannels: Record<Mode, Record<ChannelKey, number>> = {
+  acquire: { Search: 32, Social: 18, Email: 24, Retail: 14, Field: 12 },
+  grow: { Search: 18, Social: 24, Email: 26, Retail: 18, Field: 14 },
+  retain: { Search: 14, Social: 16, Email: 32, Retail: 12, Field: 26 },
 };
 
 const leverByMode: Record<Mode, { channel: ChannelKey; delta: number; recommendation: string; confidence: 'Low' | 'Medium' | 'High'; cohorts: string[] }> = {
   acquire: {
-    channel: 'email',
+    channel: 'Email',
     delta: 3,
     recommendation: 'Increase Email +3% for Premium Network Loyalists — Family Coverage Maximizers.',
     confidence: 'Medium',
     cohorts: ['Premium Network Loyalists', 'Family Coverage Maximizers'],
   },
   grow: {
-    channel: 'social',
+    channel: 'Social',
     delta: 2,
     recommendation: 'Shift Social +2% toward Hybrid Fiber Enthusiasts — Streaming Bundlers.',
     confidence: 'High',
     cohorts: ['Hybrid Fiber Enthusiasts', 'Streaming Bundlers'],
   },
   retain: {
-    channel: 'field',
+    channel: 'Field',
     delta: 4,
     recommendation: 'Allocate Field +4% for Premium Network Loyalists — Family Coverage Maximizers.',
     confidence: 'Medium',
@@ -59,605 +83,1140 @@ const leverByMode: Record<Mode, { channel: ChannelKey; delta: number; recommenda
   },
 };
 
-const channelPalette: Record<ChannelKey, string> = {
-  search: 'rgba(16,185,129,0.5)',
-  social: 'rgba(14,165,233,0.5)',
-  email: 'rgba(129,140,248,0.5)',
-  retail: 'rgba(249,115,22,0.45)',
-  field: 'rgba(244,114,182,0.45)',
-};
-
-const channelStroke: Record<ChannelKey, string> = {
-  search: 'rgba(16,185,129,0.9)',
-  social: 'rgba(14,165,233,0.9)',
-  email: 'rgba(129,140,248,0.9)',
-  retail: 'rgba(249,115,22,0.9)',
-  field: 'rgba(244,114,182,0.9)',
-};
-
-const Sparkline: React.FC<{ values: number[] }> = ({ values }) => {
-  if (!values.length) {
-    return <div className="mt-2 h-10 rounded bg-slate-900/70" />;
-  }
-  const min = Math.min(...values);
-  const max = Math.max(...values);
-  const range = max - min || 1;
-  const points = values
-    .map((value, index) => {
-      const x = (index / (values.length - 1 || 1)) * 100;
-      const y = 100 - ((value - min) / range) * 100;
-      return `${x},${y}`;
-    })
-    .join(' ');
-  return (
-    <svg viewBox="0 0 100 100" className="mt-2 h-10 w-full text-emerald-400/80" preserveAspectRatio="none">
-      <polyline points={points} fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" />
-    </svg>
-  );
-};
-
-const MultiLineChart: React.FC<{ metrics: MetricBundle | null }> = ({ metrics }) => {
-  if (!metrics) {
-    return <div className="h-64 rounded-lg border border-slate-800 bg-slate-950/60" />;
-  }
-  const length = Math.min(metrics.cvr.length, metrics.arpu.length, metrics.netAdds.length);
-  if (!length) {
-    return <div className="h-64 rounded-lg border border-slate-800 bg-slate-950/60" />;
-  }
-  const cvrValues = metrics.cvr.slice(-length).map((point) => point.value);
-  const arpuValues = metrics.arpu.slice(-length).map((point) => point.value);
-  const netValues = metrics.netAdds.slice(-length).map((point) => point.value / 1000);
-  const allValues = [...cvrValues, ...arpuValues, ...netValues];
-  const min = Math.min(...allValues);
-  const max = Math.max(...allValues);
-  const range = max - min || 1;
-  const toPoints = (values: number[]) =>
-    values
-      .map((value, index) => {
-        const x = (index / (values.length - 1 || 1)) * 100;
-        const y = 100 - ((value - min) / range) * 100;
-        return `${x},${y}`;
-      })
-      .join(' ');
-  return (
-    <svg viewBox="0 0 100 100" className="h-64 w-full" preserveAspectRatio="none">
-      <polyline points={toPoints(cvrValues)} fill="none" stroke="rgba(16,185,129,0.85)" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" />
-      <polyline points={toPoints(arpuValues)} fill="none" stroke="rgba(59,130,246,0.85)" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" />
-      <polyline points={toPoints(netValues)} fill="none" stroke="rgba(244,114,182,0.85)" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" />
-    </svg>
-  );
-};
-
-const StackedArea: React.FC<{ values: Record<ChannelKey, number[]> }> = ({ values }) => {
-  const keys = channelOrder;
-  const length = values[keys[0]]?.length ?? 0;
-  if (!length) {
-    return <div className="h-64 rounded-lg border border-slate-800 bg-slate-950/60" />;
-  }
-  const totals = new Array(length).fill(0).map((_, index) => {
-    const total = keys.reduce((sum, key) => sum + (values[key]?.[index] ?? 0), 0);
-    return total || 1;
-  });
-  let cumulative = new Array(length).fill(0);
-  return (
-    <svg viewBox="0 0 100 100" className="h-64 w-full" preserveAspectRatio="none">
-      {keys.map((key) => {
-        const series = values[key] ?? new Array(length).fill(0);
-        const next = series.map((value, index) => cumulative[index] + value);
-        const topPath = next
-          .map((value, index) => {
-            const x = (index / (length - 1 || 1)) * 100;
-            const y = 100 - (value / totals[index]) * 100;
-            return `${x},${y}`;
-          })
-          .join(' L ');
-        const bottomPath = cumulative
-          .map((value, index) => {
-            const x = (index / (length - 1 || 1)) * 100;
-            const y = 100 - (value / totals[index]) * 100;
-            return `${x},${y}`;
-          })
-          .reverse()
-          .join(' L ');
-        const d = `M ${topPath} L ${bottomPath} Z`;
-        cumulative = next;
-        return (
-          <path key={key} d={d} fill={channelPalette[key]} stroke={channelStroke[key]} strokeWidth={0.6} opacity={0.85} />
-        );
-      })}
-    </svg>
-  );
-};
-
-const GroupedBars: React.FC<{ data: Array<{ cohort: string; metrics: { label: string; value: number }[] }> }> = ({ data }) => {
-  const metricsCount = data[0]?.metrics.length ?? 0;
-  if (!metricsCount) {
-    return <div className="h-64 rounded-lg border border-slate-800 bg-slate-950/60" />;
-  }
-  const max = Math.max(
-    ...data.flatMap((cohort) => cohort.metrics.map((metric) => metric.value))
-  );
-  const barWidth = 18;
-  const gap = 12;
-  const groupWidth = metricsCount * barWidth + (metricsCount - 1) * 8;
-  return (
-    <svg viewBox={`0 0 ${data.length * (groupWidth + gap)} 120`} className="h-64 w-full" preserveAspectRatio="none">
-      {data.map((group, groupIndex) =>
-        group.metrics.map((metric, metricIndex) => {
-          const x = groupIndex * (groupWidth + gap) + metricIndex * (barWidth + 8);
-          const height = (metric.value / (max || 1)) * 90;
-          return (
-            <rect
-              key={`${group.cohort}-${metric.label}`}
-              x={x}
-              y={100 - height}
-              width={barWidth}
-              height={height}
-              rx={3}
-              fill={metricIndex === 0 ? 'rgba(16,185,129,0.8)' : 'rgba(59,130,246,0.8)'}
-            />
-          );
-        })
-      )}
-    </svg>
-  );
-};
-
-type KpiKey = 'activeCampaigns' | 'averageCvr' | 'arpuDelta' | 'netAdds' | 'churnDelta';
-
-const KPI_CONFIG: Array<{ id: KpiKey; label: string; helper: string; format: 'int' | 'pct' | 'currency' | 'pts' }> = [
-  { id: 'activeCampaigns', label: 'ACTIVE CAMPAIGNS', helper: 'Live this mode', format: 'int' },
-  { id: 'averageCvr', label: 'AVERAGE CVR', helper: 'Across active plays', format: 'pct' },
-  { id: 'arpuDelta', label: 'ARPU Δ (12-MO)', helper: 'Rolling lift', format: 'currency' },
-  { id: 'netAdds', label: 'NET ADDS (ROLLING)', helper: '30-day adds', format: 'int' },
-  { id: 'churnDelta', label: 'CHURN Δ (ROLLING)', helper: 'Basis points', format: 'pts' },
+const kpiConfig: Array<{
+  id: KpiKey;
+  label: string;
+  helper: string;
+  format: 'int' | 'pct' | 'currency' | 'pts';
+  metric: KpiMetric;
+  focus: 'cvr' | 'arpu' | 'netAdds' | 'churn';
+  tooltip: string;
+}> = [
+  {
+    id: 'activeCampaigns',
+    label: 'ACTIVE CAMPAIGNS',
+    helper: 'Live plays in flight',
+    format: 'int',
+    metric: 'active',
+    focus: 'netAdds',
+    tooltip: 'Count of live campaigns in this lifecycle mode and filters. Lower deltas may indicate launches ending.',
+  },
+  {
+    id: 'averageCvr',
+    label: 'AVERAGE CVR',
+    helper: 'Across current focus',
+    format: 'pct',
+    metric: 'cvr',
+    focus: 'cvr',
+    tooltip: 'Conversion rate blended across campaigns within scope. Compare to prior periods to catch momentum shifts.',
+  },
+  {
+    id: 'arpuDelta',
+    label: 'ARPU Δ (12-MO)',
+    helper: 'Rolling lift',
+    format: 'currency',
+    metric: 'arpu',
+    focus: 'arpu',
+    tooltip: 'Twelve-month ARPU uplift generated by the active plays. Watch deltas when toggling groupings.',
+  },
+  {
+    id: 'netAdds',
+    label: 'NET ADDS (ROLLING)',
+    helper: '30-day adds',
+    format: 'int',
+    metric: 'netAdds',
+    focus: 'netAdds',
+    tooltip: 'Rolling net additions across your selected view. Spikes often align to new bundle pushes.',
+  },
+  {
+    id: 'churnDelta',
+    label: 'CHURN Δ (ROLLING)',
+    helper: 'Basis points',
+    format: 'pts',
+    metric: 'churn',
+    focus: 'churn',
+    tooltip: 'Rolling churn delta in basis points; lower is better. Use focus to zoom in on problem areas.',
+  },
 ];
 
-const KPI_SEEDS: Record<Mode, Record<KpiKey, number>> = {
-  acquire: { activeCampaigns: 18, averageCvr: 0.041, arpuDelta: 7.4, netAdds: 2400, churnDelta: -0.8 },
-  grow: { activeCampaigns: 15, averageCvr: 0.053, arpuDelta: 9.6, netAdds: 1850, churnDelta: -1.1 },
-  retain: { activeCampaigns: 12, averageCvr: 0.033, arpuDelta: 5.1, netAdds: 1620, churnDelta: -1.6 },
+const learningsByMode: Record<Mode, Record<'campaign' | 'channel' | 'cohort', string[]>> = {
+  acquire: {
+    campaign: [
+      'Flagship bundle launches pick up speed after 36 hours when search and email stay in lockstep.',
+      'Households with fiber availability respond 1.2x better to dual-offer hero creative.',
+      'A seven-day window keeps CAC within guardrails for acquisition pushes.',
+    ],
+    channel: [
+      'Search expansion drives early discovery but needs email nurture within 24 hours.',
+      'Retail pop-ups amplify net adds when field teams pre-seed leads.',
+      'Social lookalikes cool quickly; refresh audiences every 10 days.',
+    ],
+    cohort: [
+      'Premium Network Loyalists react to speed messaging with +0.6 pts CVR.',
+      'Family Coverage Maximizers need device bundle emphasis to convert.',
+      'Recent movers stay warm when SMS sequences precede field follow-ups.',
+    ],
+  },
+  grow: {
+    campaign: [
+      'Upgrade campaigns pop when loyalty perks headline the subject line.',
+      'Bundled offers sustain ARPU lift when refreshed bi-weekly.',
+      'Attach journeys hold momentum when the second touch highlights savings.',
+    ],
+    channel: [
+      'Social carousel creative maintains lift if rotated every seven days.',
+      'Email nurture works best with interactive plan builders.',
+      'Field consults convert upsell prospects 1.3x over control territories.',
+    ],
+    cohort: [
+      'Hybrid Fiber Enthusiasts love premium streaming bundles.',
+      'Streaming Bundlers add accessories when device credits stack.',
+      'Shared-family plans upgrade faster with simplified checkout copy.',
+    ],
+  },
+  retain: {
+    campaign: [
+      'Proactive save plays need clear value reinforcement inside the first 12 hours.',
+      'Retention offers perform when we mix service credits with concierge care.',
+      'Win-back journeys spike after billing reassurance sequences.',
+    ],
+    channel: [
+      'SMS-first save flows reduce call deflection by 0.8 pts.',
+      'Field retention visits stabilize churn in high-value zips.',
+      'Email win-backs benefit from clearer loyalty recognition.',
+    ],
+    cohort: [
+      'Premium Network Loyalists expect priority support and free device swaps.',
+      'Family Coverage Maximizers respond to safety and reliability framing.',
+      'Budget protectors lean into extended payment options.',
+    ],
+  },
 };
 
-const KPI_AMPLITUDES: Record<KpiKey, number> = {
-  activeCampaigns: 0.04,
-  averageCvr: 0.015,
-  arpuDelta: 0.08,
-  netAdds: 0.06,
-  churnDelta: 0.1,
+const formatValue = (metric: KpiMetric, value: number) => {
+  if (metric === 'cvr') return `${(value * 100).toFixed(2)}%`;
+  if (metric === 'arpu') return `$${value.toFixed(2)}`;
+  if (metric === 'netAdds' || metric === 'active') return Math.round(value).toLocaleString();
+  return `${(value * 10000).toFixed(1)} pts`;
 };
 
-const KPI_DRIFTS: Record<KpiKey, number> = {
-  activeCampaigns: 0.002,
-  averageCvr: 0.0004,
-  arpuDelta: 0.001,
-  netAdds: 0.0026,
-  churnDelta: 0.0008,
+const formatDelta = (metric: KpiMetric, diff: number) => {
+  if (metric === 'churn') {
+    const basis = diff * 10000;
+    const symbol = basis <= 0 ? '▲' : '▼';
+    return `${symbol} ${Math.abs(basis).toFixed(1)} bps`;
+  }
+  const positive = diff >= 0;
+  if (metric === 'cvr') return `${positive ? '▲' : '▼'} ${(Math.abs(diff) * 100).toFixed(2)} pts`;
+  if (metric === 'arpu') return `${positive ? '▲' : '▼'} $${Math.abs(diff).toFixed(2)}`;
+  return `${positive ? '▲' : '▼'} ${Math.abs(Math.round(diff)).toLocaleString()}`;
 };
 
-const CHURN_SIGN = -1;
+const seedRand = (seed: number) => () => {
+  seed = (seed * 48271) % 2147483647;
+  return (seed & 2147483647) / 2147483647;
+};
 
-const createInitialKpis = (mode: Mode): Record<KpiKey, number[]> => {
-  const seeds = KPI_SEEDS[mode];
+const useTicker = (enabled: boolean, ms: number) => {
+  const [tick, setTick] = React.useState(0);
+  React.useEffect(() => {
+    if (!enabled) return;
+    const id = window.setInterval(() => setTick((prev) => prev + 1), ms);
+    return () => window.clearInterval(id);
+  }, [enabled, ms]);
+  return tick;
+};
+
+const clamp = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value));
+
+const getSpacing = (range: '7d' | '30d' | '90d') => {
+  if (range === '7d') return (7 * 24 * 60 * 60 * 1000) / rangePoints['7d'];
+  if (range === '30d') return (30 * 24 * 60 * 60 * 1000) / rangePoints['30d'];
+  return (90 * 24 * 60 * 60 * 1000) / rangePoints['90d'];
+};
+
+const createTimeline = (mode: Mode, range: '7d' | '30d' | '90d', groupBy: 'campaign' | 'channel' | 'cohort'): TimelineState => {
+  const points = rangePoints[range];
+  const generator = seedRand(modeSeed[mode] * 97 + groupSeed[groupBy] * 53 + rangeSeed[range] * 199);
+  const base = baseSeeds[mode];
+  const spacing = getSpacing(range);
+  const startTime = Date.now() - spacing * points;
+  const timeline: TimelineState = { timestamps: [], cvr: [], arpu: [], netAdds: [], churn: [], active: [] };
+  let cvr = base.cvr;
+  let arpu = base.arpu;
+  let netAdds = base.netAdds;
+  let churn = base.churn;
+  let active = base.active;
+  const driftBoost = groupBy === 'campaign' ? 0.0006 : groupBy === 'cohort' ? 0.0003 : 0.0004;
+  for (let index = 0; index < points; index += 1) {
+    const noise = generator() - 0.5;
+    cvr = clamp(cvr * (1 + 0.0008 + driftBoost + noise * 0.02), 0.02, 0.18);
+    arpu = clamp(arpu * (1 + 0.0012 + noise * 0.04), 3, 22);
+    netAdds = clamp(netAdds * (1 + 0.002 + noise * 0.05), 400, 4200);
+    churn = clamp(churn * (1 - 0.0009 + noise * 0.015), 0.004, 0.03);
+    active = clamp(active * (1 + 0.0004 + noise * 0.02), 6, 36);
+    timeline.timestamps.push(startTime + index * spacing);
+    timeline.cvr.push(Number(cvr.toFixed(4)));
+    timeline.arpu.push(Number(arpu.toFixed(2)));
+    timeline.netAdds.push(Math.round(netAdds));
+    timeline.churn.push(Number(churn.toFixed(4)));
+    timeline.active.push(Math.round(active));
+  }
+  return timeline;
+};
+
+const advanceTimeline = (
+  prev: TimelineState,
+  mode: Mode,
+  range: '7d' | '30d' | '90d',
+  groupBy: 'campaign' | 'channel' | 'cohort',
+  rand: () => number,
+): TimelineState => {
+  const points = rangePoints[range];
+  const spacing = getSpacing(range);
+  const base = baseSeeds[mode];
+  const driftBoost = groupBy === 'campaign' ? 0.0006 : groupBy === 'cohort' ? 0.0003 : 0.0004;
+  const nextTime = (prev.timestamps[prev.timestamps.length - 1] ?? Date.now()) + spacing;
+  const noise = rand() - 0.5;
+  const nextCvr = clamp((prev.cvr[prev.cvr.length - 1] ?? base.cvr) * (1 + 0.0008 + driftBoost + noise * 0.02), 0.02, 0.18);
+  const nextArpu = clamp((prev.arpu[prev.arpu.length - 1] ?? base.arpu) * (1 + 0.0012 + noise * 0.04), 3, 22);
+  const nextNetAdds = clamp((prev.netAdds[prev.netAdds.length - 1] ?? base.netAdds) * (1 + 0.002 + noise * 0.05), 400, 4200);
+  const nextChurn = clamp((prev.churn[prev.churn.length - 1] ?? base.churn) * (1 - 0.0009 + noise * 0.015), 0.004, 0.03);
+  const nextActive = clamp((prev.active[prev.active.length - 1] ?? base.active) * (1 + 0.0004 + noise * 0.02), 6, 36);
   return {
-    activeCampaigns: Array.from({ length: 8 }, (_, index) =>
-      Math.round(seeds.activeCampaigns * (1 + Math.sin(index / 2.5) * KPI_AMPLITUDES.activeCampaigns))
-    ),
-    averageCvr: Array.from({ length: 8 }, (_, index) =>
-      Number((seeds.averageCvr * (1 + Math.sin(index / 2.2) * KPI_AMPLITUDES.averageCvr)).toFixed(4))
-    ),
-    arpuDelta: Array.from({ length: 8 }, (_, index) =>
-      Number((seeds.arpuDelta * (1 + Math.sin(index / 3) * KPI_AMPLITUDES.arpuDelta)).toFixed(2))
-    ),
-    netAdds: Array.from({ length: 8 }, (_, index) =>
-      Math.round(seeds.netAdds * (1 + Math.sin(index / 2.8) * KPI_AMPLITUDES.netAdds))
-    ),
-    churnDelta: Array.from({ length: 8 }, (_, index) =>
-      Number((Math.abs(seeds.churnDelta) * (1 + Math.sin(index / 3.1) * KPI_AMPLITUDES.churnDelta)).toFixed(2))
-    ),
+    timestamps: [...prev.timestamps.slice(-(points - 1)), nextTime],
+    cvr: [...prev.cvr.slice(-(points - 1)), Number(nextCvr.toFixed(4))],
+    arpu: [...prev.arpu.slice(-(points - 1)), Number(nextArpu.toFixed(2))],
+    netAdds: [...prev.netAdds.slice(-(points - 1)), Math.round(nextNetAdds)],
+    churn: [...prev.churn.slice(-(points - 1)), Number(nextChurn.toFixed(4))],
+    active: [...prev.active.slice(-(points - 1)), Math.round(nextActive)],
   };
 };
 
-const createInitialChannels = (mode: Mode): Record<ChannelKey, number[]> =>
-  channelOrder.reduce<Record<ChannelKey, number[]>>((acc, key, index) => {
-    const base = mixPresets[mode][key];
-    acc[key] = Array.from({ length: 12 }, (_, point) =>
-      Number((base * (0.92 + Math.sin(point / (index + 2)) * 0.08)).toFixed(2))
-    );
+const createChannels = (mode: Mode, range: '7d' | '30d' | '90d', groupBy: 'campaign' | 'channel' | 'cohort'): ChannelSeries => {
+  const base = baseChannels[mode];
+  const points = rangePoints[range];
+  const generator = seedRand(modeSeed[mode] * 193 + groupSeed[groupBy] * 131 + rangeSeed[range] * 97);
+  const series = channelKeys.reduce<ChannelSeries>((acc, key, index) => {
+    const baseValue = base[key];
+    const values: number[] = [];
+    let current = baseValue;
+    for (let point = 0; point < points; point += 1) {
+      const noise = generator() - 0.5;
+      const drift = 0.0006 + index * 0.0002 + (groupBy === 'cohort' ? 0.0004 : 0);
+      current = clamp(current * (1 + drift + noise * 0.04), 6, 64);
+      values.push(Number(current.toFixed(2)));
+    }
+    acc[key] = values;
     return acc;
-  }, {} as Record<ChannelKey, number[]>);
-
-const formatKpiValue = (config: (typeof KPI_CONFIG)[number], value: number) => {
-  const actual = config.id === 'churnDelta' ? value * CHURN_SIGN : value;
-  if (config.format === 'int') return Math.round(actual).toLocaleString();
-  if (config.format === 'pct') return `${(actual * 100).toFixed(2)}%`;
-  if (config.format === 'currency') return `$${actual.toFixed(2)}`;
-  return `${actual.toFixed(1)} pts`;
+  }, {} as ChannelSeries);
+  return series;
 };
 
-const formatDelta = (config: (typeof KPI_CONFIG)[number], diff: number) => {
-  const actual = config.id === 'churnDelta' ? diff * CHURN_SIGN : diff;
-  const symbol = actual >= 0 ? '▲' : '▼';
-  if (config.format === 'int') return `${symbol} ${Math.abs(Math.round(actual)).toLocaleString()}`;
-  if (config.format === 'pct') return `${symbol} ${(Math.abs(actual) * 100).toFixed(2)} pts`;
-  if (config.format === 'currency') return `${symbol} $${Math.abs(actual).toFixed(2)}`;
-  return `${symbol} ${Math.abs(actual).toFixed(1)} pts`;
+const advanceChannels = (
+  prev: ChannelSeries,
+  mode: Mode,
+  range: '7d' | '30d' | '90d',
+  groupBy: 'campaign' | 'channel' | 'cohort',
+  rand: () => number,
+): ChannelSeries => {
+  const points = rangePoints[range];
+  return channelKeys.reduce<ChannelSeries>((acc, key, index) => {
+    const values = prev[key] ?? [];
+    const base = baseChannels[mode][key];
+    const drift = 0.0006 + index * 0.0002 + (groupBy === 'cohort' ? 0.0004 : 0);
+    const nextValue = clamp((values[values.length - 1] ?? base) * (1 + drift + (rand() - 0.5) * 0.04), 6, 64);
+    acc[key] = [...values.slice(-(points - 1)), Number(nextValue.toFixed(2))];
+    return acc;
+  }, {} as ChannelSeries);
+};
+
+const buildCohorts = (
+  timeline: TimelineState,
+  mode: Mode,
+  groupBy: 'campaign' | 'channel' | 'cohort',
+): CohortDatum[] => {
+  const base = timeline;
+  const length = base.cvr.length || 1;
+  const avg = (values: number[]) => values.reduce((sum, value) => sum + value, 0) / (values.length || 1);
+  const cvr = avg(base.cvr.slice(-Math.min(12, length))) * 100;
+  const arpu = avg(base.arpu.slice(-Math.min(12, length)));
+  const factor = groupBy === 'campaign' ? 1.08 : groupBy === 'cohort' ? 0.94 : 1.0;
+  const secondaryFactor = groupBy === 'campaign' ? 0.92 : groupBy === 'cohort' ? 1.06 : 1.02;
+  const cohortLabels: Record<'campaign' | 'channel' | 'cohort', [string, string]> = {
+    campaign: ['Flagship Fiber Launch', 'Neighborhood Door-to-Door'],
+    channel: ['Search-Driven Prospects', 'Field Advocates'],
+    cohort: ['Premium Network Loyalists', 'Family Coverage Maximizers'],
+  };
+  const [first, second] = cohortLabels[groupBy];
+  return [
+    {
+      cohort: first,
+      metrics: [
+        { label: 'CVR %', value: Number((cvr * factor).toFixed(2)), metric: 'cvr' },
+        { label: 'ARPU Δ', value: Number((arpu * factor).toFixed(2)), metric: 'arpu' },
+      ],
+    },
+    {
+      cohort: second,
+      metrics: [
+        { label: 'CVR %', value: Number((cvr * secondaryFactor).toFixed(2)), metric: 'cvr' },
+        { label: 'ARPU Δ', value: Number((arpu * (secondaryFactor + 0.04)).toFixed(2)), metric: 'arpu' },
+      ],
+    },
+  ];
+};
+
+const computeAnomalies = (timeline: TimelineState): Anomaly[] => {
+  const window = 20;
+  const metrics: Array<{ key: Anomaly['metric']; values: number[] }> = [
+    { key: 'cvr', values: timeline.cvr },
+    { key: 'arpu', values: timeline.arpu },
+    { key: 'netAdds', values: timeline.netAdds },
+    { key: 'churn', values: timeline.churn },
+  ];
+  return metrics
+    .map(({ key, values }) => {
+      if (values.length < 6) return null;
+      const slice = values.slice(-window);
+      const mean = slice.reduce((sum, value) => sum + value, 0) / slice.length;
+      const variance = slice.reduce((sum, value) => sum + (value - mean) * (value - mean), 0) / (slice.length || 1);
+      const std = Math.sqrt(variance);
+      if (std === 0) return null;
+      const latest = values[values.length - 1];
+      const z = (latest - mean) / std;
+      if (Math.abs(z) < 1.2) return null;
+      return { metric: key, direction: z > 0 ? 'up' : 'down', z } as Anomaly;
+    })
+    .filter((item): item is Anomaly => Boolean(item));
+};
+
+const anomalyLabel: Record<Anomaly['metric'], string> = {
+  cvr: 'CVR',
+  arpu: 'ARPU',
+  netAdds: 'Net adds',
+  churn: 'Churn',
 };
 
 const MonitoringDashboard: React.FC = () => {
-  const { mode, setStep } = useAppState();
+  const { mode, setStep, monitor, setMonitor } = useAppState();
   const navigate = useNavigate();
-  const [metrics, setMetrics] = React.useState<MetricBundle | null>(null);
-  const [loading, setLoading] = React.useState(true);
-  const [campaignFilter, setCampaignFilter] = React.useState('All campaigns');
-  const [timeFilter, setTimeFilter] = React.useState('Last 30 days');
-  const [autoRefresh, setAutoRefresh] = React.useState(true);
-  const [period, setPeriod] = React.useState<'15s' | '1m' | '5m'>('15s');
-  const [compare, setCompare] = React.useState<'prevPeriod' | 'prevPlan' | null>('prevPeriod');
-  const [kpiSeries, setKpiSeries] = React.useState<Record<KpiKey, number[]>>(() => createInitialKpis(mode));
-  const baselineRef = React.useRef<Record<KpiKey, number>>({ ...KPI_SEEDS[mode] });
-  const [channelEffectiveness, setChannelEffectiveness] = React.useState<Record<ChannelKey, number[]>>(() =>
-    createInitialChannels(mode)
+  const { auto, period, range, groupBy, compare, focus } = monitor;
+  const [timeline, setTimeline] = React.useState(() => createTimeline(mode, range, groupBy));
+  const [channels, setChannels] = React.useState(() => createChannels(mode, range, groupBy));
+  const [legend, setLegend] = React.useState<LegendVisibility>({ cvr: true, arpu: true, netAdds: true });
+  const [channelVisibility, setChannelVisibility] = React.useState<ChannelVisibility>(() =>
+    channelKeys.reduce<ChannelVisibility>((acc, key) => ({ ...acc, [key]: true }), {} as ChannelVisibility)
   );
-  const periodMs = React.useMemo(() => (period === '15s' ? 15000 : period === '1m' ? 60000 : 300000), [period]);
-  const tick = useTicker(autoRefresh, periodMs);
+  const [tileTooltip, setTileTooltip] = React.useState<HoverTooltip | null>(null);
+  const [chartTooltip, setChartTooltip] = React.useState<ChartTooltip | null>(null);
+  const [channelTooltip, setChannelTooltip] = React.useState<ChartTooltip | null>(null);
+  const [hoverIndex, setHoverIndex] = React.useState<number | null>(null);
+  const [channelHoverIndex, setChannelHoverIndex] = React.useState<number | null>(null);
+  const [brushWindow, setBrushWindow] = React.useState<{ start: number; end: number } | null>(null);
+  const [isBrushing, setIsBrushing] = React.useState(false);
+  const chartRef = React.useRef<SVGSVGElement | null>(null);
+  const channelRef = React.useRef<SVGSVGElement | null>(null);
+  const generatorRef = React.useRef(() => Math.random());
+  const channelGeneratorRef = React.useRef(() => Math.random());
+  const baselineRef = React.useRef<Record<KpiMetric, number>>({
+    cvr: timeline.cvr[0],
+    arpu: timeline.arpu[0],
+    netAdds: timeline.netAdds[0],
+    churn: timeline.churn[0],
+    active: timeline.active[0],
+  });
 
   React.useEffect(() => {
-    let active = true;
-    setLoading(true);
-    setKpiSeries(createInitialKpis(mode));
-    baselineRef.current = { ...KPI_SEEDS[mode] };
-    setChannelEffectiveness(createInitialChannels(mode));
-    metricsAPI
-      .get(mode)
-      .then((bundle) => {
-        if (!active) return;
-        setMetrics(bundle);
-        setLoading(false);
-      })
-      .catch(() => {
-        if (!active) return;
-        setMetrics(null);
-        setLoading(false);
-      });
-    return () => {
-      active = false;
+    const seedValue = modeSeed[mode] * 97 + groupSeed[groupBy] * 53 + rangeSeed[range] * 199;
+    generatorRef.current = seedRand(seedValue);
+    channelGeneratorRef.current = seedRand(seedValue + 73);
+    const nextTimeline = createTimeline(mode, range, groupBy);
+    setTimeline(nextTimeline);
+    setChannels(createChannels(mode, range, groupBy));
+    baselineRef.current = {
+      cvr: nextTimeline.cvr[0],
+      arpu: nextTimeline.arpu[0],
+      netAdds: nextTimeline.netAdds[0],
+      churn: nextTimeline.churn[0],
+      active: nextTimeline.active[0],
     };
-  }, [mode]);
+    setHoverIndex(null);
+    setChannelHoverIndex(null);
+  }, [mode, range, groupBy]);
+
+  const periodMs = React.useMemo(() => (period === '15s' ? 15000 : period === '1m' ? 60000 : 300000), [period]);
+  const tick = useTicker(auto, periodMs);
 
   React.useEffect(() => {
-    if (!autoRefresh) return;
-    setKpiSeries((prev) => {
-      const next: Record<KpiKey, number[]> = { ...prev };
-      KPI_CONFIG.forEach((config) => {
-        const key = config.id;
-        const updated = stepSeries(prev[key] ?? [], KPI_DRIFTS[key], 0.02);
-        if (key === 'averageCvr') {
-          next[key] = updated.map((value) => Number(Math.max(0.01, Math.min(0.2, value)).toFixed(4)));
-        } else if (key === 'arpuDelta') {
-          next[key] = updated.map((value) => Number(Math.max(1, Math.min(25, value)).toFixed(2)));
-        } else if (key === 'netAdds') {
-          next[key] = updated.map((value) => Math.max(0, Math.round(value)));
-        } else if (key === 'churnDelta') {
-          next[key] = updated.map((value) => Number(Math.max(0.1, Math.min(4, value)).toFixed(2)));
-        } else {
-          next[key] = updated.map((value) => Math.max(1, Math.round(value)));
-        }
-      });
-      return next;
-    });
+    if (!auto) return;
+    setTimeline((prev) => advanceTimeline(prev, mode, range, groupBy, generatorRef.current));
+    setChannels((prev) => advanceChannels(prev, mode, range, groupBy, channelGeneratorRef.current));
+  }, [auto, mode, range, groupBy, tick]);
 
-    setMetrics((prev) => {
-      if (!prev) return prev;
-      const now = Date.now();
-      const toPoints = (values: number[], seed: MetricPoint[]) =>
-        values.map((value, index) => ({
-          t: seed[index]?.t ?? now - (values.length - index) * 60000,
-          value,
-        }));
-      const nextCvr = stepSeries(prev.cvr.map((point) => point.value), 0.0008, 0.01).map((value) =>
-        Number(Math.max(0.02, Math.min(0.18, value)).toFixed(4))
-      );
-      const nextArpu = stepSeries(prev.arpu.map((point) => point.value), 0.001, 0.02).map((value) =>
-        Number(Math.max(1.5, Math.min(18, value)).toFixed(2))
-      );
-      const nextNet = stepSeries(prev.netAdds.map((point) => point.value), 0.0016, 0.025).map((value) =>
-        Math.max(0, Math.round(value))
-      );
-      return {
-        cvr: toPoints(nextCvr, prev.cvr),
-        arpu: toPoints(nextArpu, prev.arpu),
-        netAdds: toPoints(nextNet, prev.netAdds),
-      };
-    });
+  React.useEffect(() => {
+    if (!isBrushing) return;
+    const handleUp = () => {
+      setIsBrushing(false);
+      setBrushWindow(null);
+    };
+    window.addEventListener('mouseup', handleUp);
+    return () => window.removeEventListener('mouseup', handleUp);
+  }, [isBrushing]);
 
-    setChannelEffectiveness((prev) => {
-      const next: Record<ChannelKey, number[]> = { ...prev };
-      channelOrder.forEach((key, index) => {
-        const updated = stepSeries(prev[key] ?? [], 0.0009 + index * 0.0003, 0.02).map((value) =>
-          Number(Math.max(2, Math.min(60, value)).toFixed(2))
-        );
-        next[key] = updated;
-      });
-      return next;
-    });
-  }, [autoRefresh, mode, tick]);
-
+  const cohorts = React.useMemo(() => buildCohorts(timeline, mode, groupBy), [timeline, mode, groupBy]);
+  const anomalies = React.useMemo(() => computeAnomalies(timeline), [timeline]);
   const kpiCards = React.useMemo(() => {
-    return KPI_CONFIG.map((config) => {
-      const series = kpiSeries[config.id] ?? [];
-      const latest = series[series.length - 1] ?? Math.abs(KPI_SEEDS[mode][config.id]);
-      const actualLatest = config.id === 'churnDelta' ? latest * CHURN_SIGN : latest;
+    return kpiConfig.map((config) => {
+      const metricSeries = timeline[config.metric];
+      const latest = metricSeries[metricSeries.length - 1];
+      const previous = metricSeries[metricSeries.length - 2] ?? latest;
       let diff = 0;
       if (compare === 'prevPeriod') {
-        const prevValue = series.length > 1 ? series[series.length - 2] : latest;
-        const actualPrev = config.id === 'churnDelta' ? prevValue * CHURN_SIGN : prevValue;
-        diff = actualLatest - actualPrev;
+        diff = latest - previous;
       } else if (compare === 'prevPlan') {
-        diff = actualLatest - baselineRef.current[config.id];
+        diff = latest - (baselineRef.current[config.metric] ?? previous);
       }
+      const delta = compare === 'none' ? null : formatDelta(config.metric, diff);
       return {
         ...config,
-        value: formatKpiValue(config, latest),
-        trend: series,
-        delta: compare ? formatDelta(config, diff) : null,
-        deltaPositive: diff >= 0,
+        value: formatValue(config.metric, latest),
+        raw: latest,
+        delta,
+        deltaPositive: config.metric === 'churn' ? diff <= 0 : diff >= 0,
+        trend: metricSeries,
+        baseline: compare === 'prevPlan' ? baselineRef.current[config.metric] : compare === 'prevPeriod' ? previous : undefined,
       };
     });
-  }, [compare, kpiSeries, mode]);
+  }, [compare, timeline]);
 
-  const areaSeries = React.useMemo(() => channelEffectiveness, [channelEffectiveness]);
-
-  const cohorts = React.useMemo(() => {
-    const cvrSeries = metrics?.cvr ?? [];
-    const arpuSeries = metrics?.arpu ?? [];
-    const sliceCvr = cvrSeries.slice(-6);
-    const sliceArpu = arpuSeries.slice(-6);
-    const denomCvr = sliceCvr.length || 1;
-    const denomArpu = sliceArpu.length || 1;
-    const primaryCvr = (sliceCvr.reduce((sum, point) => sum + point.value, 0) / denomCvr) * 100;
-    const secondaryCvr = (sliceCvr.reduce((sum, point) => sum + point.value * 0.9, 0) / denomCvr) * 100;
-    const primaryArpu = sliceArpu.reduce((sum, point) => sum + point.value, 0) / denomArpu;
-    const secondaryArpu = sliceArpu.reduce((sum, point) => sum + point.value * 1.1, 0) / denomArpu;
-    return [
-      {
-        cohort: 'Premium Network Loyalists',
-        metrics: [
-          { label: 'CVR %', value: primaryCvr },
-          { label: 'ARPU Δ', value: primaryArpu },
-        ],
-      },
-      {
-        cohort: 'Family Coverage Maximizers',
-        metrics: [
-          { label: 'CVR %', value: secondaryCvr },
-          { label: 'ARPU Δ', value: secondaryArpu },
-        ],
-      },
-    ];
-  }, [metrics]);
+  const learnings = React.useMemo(() => {
+    const baseLearnings = [...learningsByMode[mode][groupBy]];
+    if (focus?.key) {
+      baseLearnings.unshift(`Focus locked on ${focus.key} — adjusting charts and insights in real time.`);
+    } else if (focus) {
+      const metricLabel =
+        focus.kpi === 'cvr'
+          ? 'conversion swings'
+          : focus.kpi === 'arpu'
+          ? 'ARPU shifts'
+          : focus.kpi === 'netAdds'
+          ? 'net additions'
+          : 'churn drift';
+      baseLearnings.unshift(`Focus is set to ${metricLabel}. Related tiles and charts are highlighted.`);
+    }
+    return baseLearnings.slice(0, 4);
+  }, [mode, groupBy, focus]);
 
   const lever = leverByMode[mode];
+
   const handleApply = () => {
-    const preset = mixPresets[mode];
-    const updated = { ...preset, [lever.channel]: Math.min(60, preset[lever.channel] + lever.delta) };
-    navigate('/execution-hub', { state: { presetMix: updated } });
+    const base = baseChannels[mode];
+    const tweaked = channelKeys.reduce<Record<string, number>>((acc, key) => {
+      const next = key === lever.channel ? Math.min(70, base[key] + lever.delta) : base[key];
+      acc[key.toLowerCase()] = Number(next.toFixed(2));
+      return acc;
+    }, {} as Record<string, number>);
+    setMonitor({ focus: { kpi: 'cvr', key: lever.channel } });
     setStep(4);
+    navigate('/execution-hub', { state: { presetMix: tweaked } });
   };
 
   const exportCsv = () => {
-    const rows = [
-      ['metric', 'value'],
-      ...kpiCards.map((item) => [item.label, item.value]),
-    ];
-    const blob = new Blob([rows.map((row) => row.join(',')).join('\n')], { type: 'text/csv' });
+    const header = ['timestamp', 'cvr', 'arpu', 'netAdds', 'churn', 'active'];
+    const rows = timeline.timestamps.map((ts, index) => [
+      new Date(ts).toISOString(),
+      timeline.cvr[index].toFixed(4),
+      timeline.arpu[index].toFixed(2),
+      timeline.netAdds[index].toString(),
+      timeline.churn[index].toFixed(4),
+      timeline.active[index].toString(),
+    ]);
+    const csv = [header, ...rows].map((row) => row.join(',')).join('\n');
+    const blob = new Blob([csv], { type: 'text/csv' });
     const link = document.createElement('a');
     link.href = URL.createObjectURL(blob);
-    link.download = 'monitoring-dashboard.csv';
+    link.download = 'subscriber-connect-monitoring.csv';
     link.click();
     URL.revokeObjectURL(link.href);
   };
 
+  const exportJson = () => {
+    const payload = {
+      mode,
+      options: monitor,
+      kpis: kpiCards.map((card) => ({ id: card.id, value: card.value, delta: card.delta })),
+      timeline,
+      channels,
+      cohorts,
+    };
+    const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
+    const link = document.createElement('a');
+    link.href = URL.createObjectURL(blob);
+    link.download = 'subscriber-connect-monitoring.json';
+    link.click();
+    URL.revokeObjectURL(link.href);
+  };
+
+  const handleTileClick = (config: typeof kpiCards[number]) => {
+    const isActive =
+      focus?.kpi === config.focus &&
+      ((config.id === 'activeCampaigns' && focus.key === 'activeCampaigns') ||
+        (config.id !== 'activeCampaigns' && !focus?.key));
+    if (isActive) {
+      setMonitor({ focus: null });
+      return;
+    }
+    if (config.id === 'activeCampaigns') {
+      setMonitor({ focus: { kpi: 'netAdds', key: 'activeCampaigns' } });
+    } else {
+      setMonitor({ focus: { kpi: config.focus } });
+    }
+  };
+
+  const handleTileHover = (event: React.MouseEvent<HTMLDivElement>, config: typeof kpiCards[number]) => {
+    const rect = event.currentTarget.getBoundingClientRect();
+    setTileTooltip({
+      id: config.id,
+      x: rect.left + rect.width / 2,
+      y: rect.top - 12,
+      value: config.value,
+      delta: config.delta,
+      baseline: config.baseline !== undefined ? formatValue(config.metric, config.baseline) : undefined,
+    });
+  };
+
+  const handleTileLeave = () => setTileTooltip(null);
+  const visibleTimelineSeries = React.useMemo(() => {
+    const entries: Array<{ key: keyof LegendVisibility; values: number[]; color: string; label: string; metric: KpiMetric }>
+      = [];
+    if (legend.cvr) entries.push({ key: 'cvr', values: timeline.cvr, color: 'rgba(16,185,129,0.85)', label: 'CVR %', metric: 'cvr' });
+    if (legend.arpu) entries.push({ key: 'arpu', values: timeline.arpu, color: 'rgba(59,130,246,0.85)', label: 'ARPU Δ', metric: 'arpu' });
+    if (legend.netAdds) entries.push({ key: 'netAdds', values: timeline.netAdds, color: 'rgba(244,114,182,0.85)', label: 'Net adds', metric: 'netAdds' });
+    return entries;
+  }, [legend, timeline]);
+
+  const allValues = visibleTimelineSeries.flatMap((entry) => entry.values);
+  const minValue = allValues.length ? Math.min(...allValues) : 0;
+  const maxValue = allValues.length ? Math.max(...allValues) : 1;
+  const rangeSpan = maxValue - minValue || 1;
+
+  const handleChartMouseMove = (event: React.MouseEvent<SVGSVGElement>) => {
+    const rect = event.currentTarget.getBoundingClientRect();
+    const ratio = (event.clientX - rect.left) / rect.width;
+    const index = Math.min(Math.max(Math.round(ratio * (timeline.timestamps.length - 1)), 0), timeline.timestamps.length - 1);
+    setHoverIndex(index);
+    const lines = visibleTimelineSeries.map((entry) => ({
+      label: entry.label,
+      value: formatValue(entry.metric, entry.values[index]),
+    }));
+    setChartTooltip({
+      x: rect.left + rect.width * ratio,
+      y: rect.top + 12,
+      lines,
+      timestamp: new Date(timeline.timestamps[index]).toLocaleString(),
+    });
+    if (isBrushing && brushWindow) {
+      setBrushWindow({ start: brushWindow.start, end: ratio });
+    }
+  };
+
+  const handleChartMouseLeave = () => {
+    setHoverIndex(null);
+    setChartTooltip(null);
+    if (!isBrushing) {
+      setBrushWindow(null);
+    }
+  };
+
+  const handleChartMouseDown = (event: React.MouseEvent<SVGSVGElement>) => {
+    const rect = event.currentTarget.getBoundingClientRect();
+    const ratio = (event.clientX - rect.left) / rect.width;
+    setBrushWindow({ start: ratio, end: ratio });
+    setIsBrushing(true);
+  };
+
+  const handleChartMouseUp = () => {
+    if (!brushWindow) return;
+    const width = Math.abs(brushWindow.end - brushWindow.start);
+    if (width > 0.05) {
+      const rangeValue = width < 0.33 ? '7d' : width < 0.66 ? '30d' : '90d';
+      setMonitor({ range: rangeValue });
+    }
+    setIsBrushing(false);
+    setBrushWindow(null);
+  };
+
+  const visibleChannels = React.useMemo(() => {
+    return channelKeys.filter((key) => channelVisibility[key]);
+  }, [channelVisibility]);
+
+  const channelTotals = React.useMemo(() => {
+    if (!visibleChannels.length) return timeline.timestamps.map(() => 0);
+    const length = channels[visibleChannels[0]]?.length ?? 0;
+    return Array.from({ length }, (_, index) =>
+      visibleChannels.reduce((sum, key) => sum + (channels[key]?.[index] ?? 0), 0)
+    );
+  }, [channels, visibleChannels, timeline.timestamps.length]);
+
+  const handleChannelMove = (event: React.MouseEvent<SVGSVGElement>) => {
+    if (!channelRef.current) return;
+    const rect = channelRef.current.getBoundingClientRect();
+    const ratio = (event.clientX - rect.left) / rect.width;
+    const length = channelTotals.length;
+    const index = Math.min(Math.max(Math.round(ratio * (length - 1)), 0), length - 1);
+    setChannelHoverIndex(index);
+    const lines: Array<{ label: string; value: string }> = visibleChannels.map((key) => ({
+      label: key,
+      value: `${(channels[key]?.[index] ?? 0).toFixed(1)}% allocation`,
+    }));
+    lines.push({ label: 'Total', value: `${channelTotals[index].toFixed(1)}%` });
+    setChannelTooltip({ x: rect.left + ratio * rect.width, y: rect.top + 12, lines, timestamp: `Index ${index + 1}` });
+  };
+
+  const handleChannelLeave = () => {
+    setChannelHoverIndex(null);
+    setChannelTooltip(null);
+  };
+
+  const toggleLegend = (key: keyof LegendVisibility) => {
+    setLegend((prev) => ({ ...prev, [key]: !prev[key] }));
+  };
+
+  const toggleChannelVisibility = (key: ChannelKey) => {
+    setChannelVisibility((prev) => ({ ...prev, [key]: !prev[key] }));
+  };
+
+  const handleCohortClick = (cohort: CohortDatum, metric: 'cvr' | 'arpu') => {
+    setMonitor({ focus: { kpi: metric === 'cvr' ? 'cvr' : 'arpu', key: cohort.cohort } });
+  };
+
+  const isFocusActive = (card: typeof kpiCards[number]) => {
+    if (!focus) return false;
+    if (card.id === 'activeCampaigns') return focus.key === 'activeCampaigns';
+    return focus.kpi === card.focus && !focus.key;
+  };
+
+  const isChannelFocused = (key: ChannelKey) => focus?.key === key;
+  const isCohortFocused = (cohort: string) => focus?.key === cohort;
+
   return (
     <div className="space-y-6">
       <header className="rounded-xl border border-slate-800 bg-slate-950/70 p-6">
-        <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+        <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
           <div>
             <div className="flex items-center gap-2">
               <h2 className="text-2xl font-semibold text-white">Monitoring dashboard</h2>
               <InfoIcon
                 title="Monitoring dashboard"
-                body="Live KPIs and telemetry across campaigns in this lifecycle mode. Toggle auto-refresh to watch trends update or pause to investigate a moment in time."
+                body="Live KPIs and trends. Click tiles to focus, brush the timeline to zoom, and compare against previous baselines."
               />
             </div>
-            <p className="text-sm text-slate-300">One-glance health of live acquisition plays.</p>
+            <p className="text-sm text-slate-300">One-glance health of live {mode} plays.</p>
           </div>
           <div className="flex flex-wrap items-center gap-3 text-sm">
-            <select
-              value={campaignFilter}
-              onChange={(event) => setCampaignFilter(event.target.value)}
-              className="rounded-lg border border-slate-800 bg-slate-950/70 px-3 py-2 text-sm text-slate-200"
-            >
-              <option>All campaigns</option>
-              <option>Flagship bundles</option>
-              <option>Fiber launch</option>
-            </select>
-            <select
-              value={timeFilter}
-              onChange={(event) => setTimeFilter(event.target.value)}
-              className="rounded-lg border border-slate-800 bg-slate-950/70 px-3 py-2 text-sm text-slate-200"
-            >
-              <option>Last 30 days</option>
-              <option>Last 14 days</option>
-              <option>Last 7 days</option>
-            </select>
-            <select
-              value={compare ?? 'none'}
-              onChange={(event) => {
-                const value = event.target.value;
-                setCompare(value === 'none' ? null : (value as 'prevPeriod' | 'prevPlan'));
-              }}
-              className="rounded-lg border border-slate-800 bg-slate-950/70 px-3 py-2 text-sm text-slate-200"
-            >
-              <option value="prevPeriod">Compare to previous period</option>
-              <option value="prevPlan">Compare to previous plan</option>
-              <option value="none">No comparison</option>
-            </select>
-            <select
-              value={period}
-              onChange={(event) => setPeriod(event.target.value as '15s' | '1m' | '5m')}
-              className="rounded-lg border border-slate-800 bg-slate-950/70 px-3 py-2 text-sm text-slate-200"
-            >
-              <option value="15s">15s refresh</option>
-              <option value="1m">1m refresh</option>
-              <option value="5m">5m refresh</option>
-            </select>
+            <label className="flex items-center gap-2 text-xs text-slate-300">
+              <span>Range</span>
+              <select
+                value={range}
+                onChange={(event) => setMonitor({ range: event.target.value as '7d' | '30d' | '90d' })}
+                className="rounded-lg border border-slate-800 bg-slate-950/70 px-3 py-2 text-sm text-slate-200"
+              >
+                <option value="7d">Last 7d</option>
+                <option value="30d">Last 30d</option>
+                <option value="90d">Last 90d</option>
+              </select>
+            </label>
+            <label className="flex items-center gap-2 text-xs text-slate-300">
+              <span>Group by</span>
+              <select
+                value={groupBy}
+                onChange={(event) => setMonitor({ groupBy: event.target.value as 'campaign' | 'channel' | 'cohort' })}
+                className="rounded-lg border border-slate-800 bg-slate-950/70 px-3 py-2 text-sm text-slate-200"
+              >
+                <option value="campaign">Campaign</option>
+                <option value="channel">Channel</option>
+                <option value="cohort">Cohort</option>
+              </select>
+            </label>
+            <label className="flex items-center gap-2 text-xs text-slate-300">
+              <span>Compare to</span>
+              <select
+                value={compare}
+                onChange={(event) => setMonitor({ compare: event.target.value as typeof compare })}
+                className="rounded-lg border border-slate-800 bg-slate-950/70 px-3 py-2 text-sm text-slate-200"
+              >
+                <option value="none">None</option>
+                <option value="prevPeriod">Previous period</option>
+                <option value="prevPlan">Previous plan</option>
+              </select>
+            </label>
+            <label className="flex items-center gap-2 text-xs text-slate-300">
+              <span>Period</span>
+              <select
+                value={period}
+                onChange={(event) => setMonitor({ period: event.target.value as '15s' | '1m' | '5m' })}
+                className="rounded-lg border border-slate-800 bg-slate-950/70 px-3 py-2 text-sm text-slate-200"
+              >
+                <option value="15s">15s</option>
+                <option value="1m">1m</option>
+                <option value="5m">5m</option>
+              </select>
+            </label>
             <label className="flex items-center gap-2 text-xs text-slate-300">
               <input
                 type="checkbox"
-                checked={autoRefresh}
-                onChange={(event) => setAutoRefresh(event.target.checked)}
+                checked={auto}
+                onChange={(event) => setMonitor({ auto: event.target.checked })}
                 className="h-4 w-4 rounded border-slate-700 bg-slate-900 text-emerald-500 focus:ring-emerald-500"
               />
-              Auto-refresh
+              <span>Auto-refresh</span>
             </label>
             <button
               type="button"
-              onClick={() => setAutoRefresh((prev) => !prev)}
-              className="rounded-full border border-slate-700 px-4 py-2 text-sm text-slate-200 transition hover:bg-slate-900"
+              onClick={() => setMonitor({ auto: false })}
+              className="rounded-full border border-slate-700 px-3 py-1 text-xs text-slate-200 hover:bg-slate-900"
             >
-              {autoRefresh ? 'Pause' : 'Resume'}
+              Pause
             </button>
             <button
               type="button"
               onClick={exportCsv}
-              className="rounded-full border border-slate-700 px-4 py-2 text-sm text-slate-200 transition hover:bg-slate-900"
+              className="rounded-full border border-slate-700 px-3 py-1 text-xs text-slate-200 hover:bg-slate-900"
             >
               Export CSV
+            </button>
+            <button
+              type="button"
+              onClick={exportJson}
+              className="rounded-full border border-slate-700 px-3 py-1 text-xs text-slate-200 hover:bg-slate-900"
+            >
+              Export JSON
             </button>
           </div>
         </div>
       </header>
-
-      <section>
-        <div className="grid gap-3 md:grid-cols-3 xl:grid-cols-5">
-          {kpiCards.map((kpi) => (
-            <div key={kpi.id} className="rounded-lg border border-slate-800 bg-slate-950/70 p-4">
-              <div className="flex items-center justify-between text-xs uppercase tracking-wide text-slate-400">
-                <p>{kpi.label}</p>
-                <InfoIcon title={kpi.label} body={kpi.helper} />
+      <section className="grid gap-4 md:grid-cols-5">
+        {kpiCards.map((card) => (
+          <div
+            key={card.id}
+            onClick={() => handleTileClick(card)}
+            onMouseEnter={(event) => handleTileHover(event, card)}
+            onMouseLeave={handleTileLeave}
+            role="button"
+            tabIndex={0}
+            onKeyDown={(event) => {
+              if (event.key === 'Enter' || event.key === ' ') {
+                event.preventDefault();
+                handleTileClick(card);
+              }
+            }}
+            aria-pressed={isFocusActive(card)}
+            className={`relative cursor-pointer rounded-xl border px-4 py-3 transition ${
+              isFocusActive(card)
+                ? 'border-emerald-500 bg-emerald-500/10 shadow-lg shadow-emerald-500/30'
+                : 'border-slate-800 bg-slate-950/70 hover:border-emerald-500/60'
+            }`}
+          >
+            <div className="flex items-start justify-between">
+              <div>
+                <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">{card.label}</p>
+                <p className="mt-1 text-lg font-semibold text-white">{card.value}</p>
               </div>
-              <p className="mt-2 text-xl font-semibold text-white">{kpi.value}</p>
-              {kpi.delta ? (
-                <p className={`text-xs font-semibold ${kpi.deltaPositive ? 'text-emerald-300' : 'text-rose-300'}`}>{kpi.delta}</p>
-              ) : null}
-              <p className="text-[11px] text-slate-500">{kpi.helper}</p>
-              <Sparkline values={kpi.trend} />
+              <InfoIcon title={card.label} body={card.tooltip} />
             </div>
-          ))}
-        </div>
+            {card.delta ? (
+              <p className={`mt-1 text-xs font-semibold ${card.deltaPositive ? 'text-emerald-300' : 'text-rose-300'}`}>
+                {card.delta}
+              </p>
+            ) : (
+              <p className="mt-1 text-xs text-slate-500">No comparison</p>
+            )}
+            <p className="text-[11px] text-slate-500">{card.helper}</p>
+            <Sparkline values={card.trend} baseline={card.baseline} />
+          </div>
+        ))}
       </section>
 
-      <section className="grid gap-6 xl:grid-cols-2">
-        <div className="rounded-xl border border-slate-800 bg-slate-950/70 p-5">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <h3 className="text-sm font-semibold uppercase tracking-wide text-slate-300">Campaign performance over time</h3>
-              <InfoIcon
-                title="Campaign performance"
-                body="Overlay conversion, ARPU lift, and net adds to see how launch waves are trending. Legends update with your selection."
-              />
-            </div>
-            <div className="flex gap-2 text-[11px] text-slate-400">
-              <span className="inline-flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-emerald-400" />CVR %</span>
-              <span className="inline-flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-sky-400" />ARPU Δ</span>
-              <span className="inline-flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-rose-400" />Net adds</span>
-            </div>
-          </div>
-          <div className="mt-4">
-            <MultiLineChart metrics={metrics} />
-          </div>
-        </div>
-        <div className="rounded-xl border border-slate-800 bg-slate-950/70 p-5">
+      <section className="rounded-xl border border-slate-800 bg-slate-950/70 p-5">
+        <div className="flex items-center justify-between gap-2">
           <div className="flex items-center gap-2">
-            <h3 className="text-sm font-semibold uppercase tracking-wide text-slate-300">Channel effectiveness</h3>
+            <h3 className="text-sm font-semibold uppercase tracking-wide text-slate-300">Performance over time</h3>
             <InfoIcon
-              title="Channel effectiveness"
-              body="See how allocation mix and contribution by channel evolve. Hover to inspect changes as auto-refresh updates."
+              title="Performance over time"
+              body="Hover to inspect CVR, ARPU, and net adds. Toggle legend chips to isolate series and brush to change the time horizon."
             />
           </div>
-          <div className="mt-4">
-            {areaSeries ? <StackedArea values={areaSeries} /> : <div className="h-64 rounded-lg border border-slate-800 bg-slate-950/60" />}
-          </div>
-          <div className="mt-3 grid grid-cols-5 text-center text-[11px] text-slate-400">
-            {channelOrder.map((key) => (
-              <span key={key}>{key.toUpperCase()}</span>
+          <div className="flex flex-wrap items-center gap-2 text-[11px] text-slate-400">
+            {(['cvr', 'arpu', 'netAdds'] as Array<keyof LegendVisibility>).map((key) => (
+              <button
+                key={key}
+                type="button"
+                onClick={() => toggleLegend(key)}
+                aria-pressed={legend[key]}
+                className={`inline-flex items-center gap-1 rounded-full px-3 py-1 text-xs transition ${
+                  legend[key]
+                    ? 'bg-emerald-500/20 text-emerald-200'
+                    : 'border border-slate-700 bg-slate-900 text-slate-400'
+                }`}
+              >
+                <span
+                  className="h-2 w-2 rounded-full"
+                  style={{
+                    backgroundColor:
+                      key === 'cvr' ? 'rgba(16,185,129,0.85)' : key === 'arpu' ? 'rgba(59,130,246,0.85)' : 'rgba(244,114,182,0.85)',
+                  }}
+                />
+                {key === 'cvr' ? 'CVR %' : key === 'arpu' ? 'ARPU Δ' : 'Net adds'}
+              </button>
             ))}
           </div>
         </div>
+        <div className="relative mt-4">
+          <svg
+            ref={chartRef}
+            viewBox="0 0 100 100"
+            className="h-64 w-full"
+            preserveAspectRatio="none"
+            onMouseMove={handleChartMouseMove}
+            onMouseLeave={handleChartMouseLeave}
+            onMouseDown={handleChartMouseDown}
+            onMouseUp={handleChartMouseUp}
+          >
+            {visibleTimelineSeries.map((series) => {
+              const path = series.values
+                .map((value, index) => {
+                  const x = (index / Math.max(series.values.length - 1, 1)) * 100;
+                  const y = 100 - ((value - minValue) / rangeSpan) * 100;
+                  return `${x},${y}`;
+                })
+                .join(' ');
+              const highlight = focus?.kpi === series.metric && !focus?.key;
+              return (
+                <polyline
+                  key={series.key}
+                  points={path}
+                  fill="none"
+                  stroke={series.color}
+                  strokeWidth={highlight ? 2.8 : 1.8}
+                  strokeOpacity={highlight || !focus ? 1 : 0.25}
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                />
+              );
+            })}
+            {brushWindow ? (
+              <rect
+                x={`${Math.min(brushWindow.start, brushWindow.end) * 100}`}
+                width={`${Math.abs(brushWindow.end - brushWindow.start) * 100}`}
+                y="0"
+                height="100"
+                fill="rgba(16,185,129,0.15)"
+              />
+            ) : null}
+            {hoverIndex !== null ? (
+              <line
+                x1={`${(hoverIndex / Math.max(timeline.timestamps.length - 1, 1)) * 100}`}
+                x2={`${(hoverIndex / Math.max(timeline.timestamps.length - 1, 1)) * 100}`}
+                y1="0"
+                y2="100"
+                stroke="rgba(148,163,184,0.5)"
+                strokeWidth={0.6}
+              />
+            ) : null}
+          </svg>
+          {chartTooltip ? (
+            <div
+              className="pointer-events-none absolute rounded-lg border border-slate-800 bg-slate-950/90 px-3 py-2 text-[11px] text-slate-200 shadow-lg"
+              style={{ left: Math.min(Math.max(chartTooltip.x - 60, 0), (chartRef.current?.clientWidth ?? 0) - 120), top: 8 }}
+            >
+              <p className="font-semibold">{chartTooltip.timestamp}</p>
+              <ul className="mt-1 space-y-1">
+                {chartTooltip.lines.map((line) => (
+                  <li key={line.label} className="flex justify-between gap-2">
+                    <span>{line.label}</span>
+                    <span className="font-semibold text-emerald-200">{line.value}</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ) : null}
+        </div>
       </section>
-
-      <section className="grid gap-6 lg:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]">
-        <div className="rounded-xl border border-slate-800 bg-slate-950/70 p-5">
-          <div className="flex items-center gap-2">
-            <h3 className="text-sm font-semibold uppercase tracking-wide text-slate-300">Cohort compare</h3>
-            <InfoIcon
-              title="Cohort compare"
-              body="Compare headline CVR and ARPU lift across key cohorts to decide where to nudge mix or creative."
-            />
+      <section className="grid gap-6 xl:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]">
+        <div className="space-y-6">
+          <div className="rounded-xl border border-slate-800 bg-slate-950/70 p-5">
+            <div className="flex items-center gap-2">
+              <h3 className="text-sm font-semibold uppercase tracking-wide text-slate-300">Channel effectiveness</h3>
+              <InfoIcon
+                title="Channel effectiveness"
+                body="Stacked allocation by channel. Toggle channels below to isolate contributions; hover to inspect share and totals."
+              />
+            </div>
+            <div className="relative mt-4">
+              <svg
+                ref={channelRef}
+                viewBox="0 0 100 100"
+                className="h-60 w-full"
+                preserveAspectRatio="none"
+                onMouseMove={handleChannelMove}
+                onMouseLeave={handleChannelLeave}
+              >
+                {visibleChannels.map((key, index) => {
+                  const series = channels[key] ?? [];
+                  const cumulativeStart = visibleChannels.slice(0, index).reduce<number[]>((acc, channelKey) => {
+                    const values = channels[channelKey] ?? [];
+                    if (!acc.length) return values.map((value) => value);
+                    return values.map((value, idx) => value + (acc[idx] ?? 0));
+                  }, []);
+                  const totals = channelTotals.map((value) => value || 1);
+                  const topPath = series
+                    .map((value, idx) => {
+                      const x = (idx / Math.max(series.length - 1, 1)) * 100;
+                      const y = 100 - ((value + (cumulativeStart[idx] ?? 0)) / totals[idx]) * 100;
+                      return `${x},${y}`;
+                    })
+                    .join(' ');
+                  const bottomPath = series
+                    .map((value, idx) => {
+                      const prior = cumulativeStart[idx] ?? 0;
+                      const x = (idx / Math.max(series.length - 1, 1)) * 100;
+                      const y = 100 - (prior / totals[idx]) * 100;
+                      return `${x},${y}`;
+                    })
+                    .reverse()
+                    .join(' ');
+                  const fill =
+                    key === 'Search'
+                      ? 'rgba(16,185,129,0.5)'
+                      : key === 'Social'
+                      ? 'rgba(14,165,233,0.5)'
+                      : key === 'Email'
+                      ? 'rgba(129,140,248,0.5)'
+                      : key === 'Retail'
+                      ? 'rgba(249,115,22,0.45)'
+                      : 'rgba(244,114,182,0.45)';
+                  const stroke =
+                    key === 'Search'
+                      ? 'rgba(16,185,129,0.9)'
+                      : key === 'Social'
+                      ? 'rgba(14,165,233,0.9)'
+                      : key === 'Email'
+                      ? 'rgba(129,140,248,0.9)'
+                      : key === 'Retail'
+                      ? 'rgba(249,115,22,0.9)'
+                      : 'rgba(244,114,182,0.9)';
+                  const path = `M ${topPath} L ${bottomPath} Z`;
+                  const focused = isChannelFocused(key);
+                  return (
+                    <path key={key} d={path} fill={fill} stroke={stroke} strokeWidth={focused ? 1.4 : 0.6} opacity={focused || !focus?.key ? 0.9 : 0.25} />
+                  );
+                })}
+                {channelHoverIndex !== null ? (
+                  <line
+                    x1={`${(channelHoverIndex / Math.max(channelTotals.length - 1, 1)) * 100}`}
+                    x2={`${(channelHoverIndex / Math.max(channelTotals.length - 1, 1)) * 100}`}
+                    y1="0"
+                    y2="100"
+                    stroke="rgba(148,163,184,0.5)"
+                    strokeWidth={0.6}
+                  />
+                ) : null}
+              </svg>
+              {channelTooltip ? (
+                <div
+                  className="pointer-events-none absolute rounded-lg border border-slate-800 bg-slate-950/90 px-3 py-2 text-[11px] text-slate-200 shadow-lg"
+                  style={{ left: Math.min(Math.max(channelTooltip.x - 60, 0), (channelRef.current?.clientWidth ?? 0) - 120), top: 8 }}
+                >
+                  <p className="font-semibold">{channelTooltip.timestamp}</p>
+                  <ul className="mt-1 space-y-1">
+                    {channelTooltip.lines.map((line) => (
+                      <li key={line.label} className="flex justify-between gap-2">
+                        <span>{line.label}</span>
+                        <span className="font-semibold text-emerald-200">{line.value}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              ) : null}
+            </div>
+            <div className="mt-3 grid grid-cols-5 gap-2 text-center text-[11px] text-slate-400">
+              {channelKeys.map((key) => (
+                <button
+                  key={key}
+                  type="button"
+                  onClick={() => toggleChannelVisibility(key)}
+                  aria-pressed={channelVisibility[key]}
+                  className={`rounded-full px-2 py-1 transition ${
+                    channelVisibility[key]
+                      ? 'bg-slate-900 text-slate-200'
+                      : 'border border-slate-700 bg-slate-950 text-slate-500'
+                  }`}
+                >
+                  {key}
+                </button>
+              ))}
+            </div>
           </div>
-          <div className="mt-4">
-            <GroupedBars data={cohorts} />
+
+          <div className="rounded-xl border border-slate-800 bg-slate-950/70 p-5">
+            <div className="flex items-center gap-2">
+              <h3 className="text-sm font-semibold uppercase tracking-wide text-slate-300">Cohort compare</h3>
+              <InfoIcon
+                title="Cohort compare"
+                body="Grouped bars highlight CVR and ARPU differences. Click a bar to lock focus on that cohort."
+              />
+            </div>
+            <div className="mt-4 overflow-x-auto">
+              <svg viewBox={`0 0 ${cohorts.length * 80} 120`} className="h-60 w-full" preserveAspectRatio="none">
+                {cohorts.map((group, groupIndex) =>
+                  group.metrics.map((metric, metricIndex) => {
+                    const max = Math.max(
+                      ...cohorts.flatMap((co) => co.metrics.map((item) => item.value))
+                    );
+                    const x = groupIndex * 80 + metricIndex * 28 + 12;
+                    const height = (metric.value / (max || 1)) * 80;
+                    const focused = isCohortFocused(group.cohort);
+                    const fill = metric.metric === 'cvr' ? 'rgba(16,185,129,0.85)' : 'rgba(59,130,246,0.85)';
+                    return (
+                      <rect
+                        key={`${group.cohort}-${metric.label}`}
+                        x={x}
+                        y={95 - height}
+                        width={20}
+                        height={height}
+                        rx={3}
+                        fill={fill}
+                        opacity={focused || !focus?.key ? 0.9 : 0.3}
+                        className="cursor-pointer"
+                        onClick={() => handleCohortClick(group, metric.metric)}
+                      />
+                    );
+                  })
+                )}
+              </svg>
+            </div>
+            <div className="mt-3 flex flex-wrap gap-2 text-xs text-slate-400">
+              {cohorts.map((cohort) => (
+                <span
+                  key={cohort.cohort}
+                  className={`rounded-full border px-3 py-1 ${
+                    isCohortFocused(cohort.cohort)
+                      ? 'border-emerald-500 bg-emerald-500/10 text-emerald-200'
+                      : 'border-slate-700 bg-slate-900'
+                  }`}
+                >
+                  {cohort.cohort}
+                </span>
+              ))}
+            </div>
           </div>
         </div>
         <div className="space-y-6">
           <div className="rounded-xl border border-slate-800 bg-slate-950/70 p-5">
             <div className="flex items-center gap-2">
-              <h3 className="text-sm font-semibold uppercase tracking-wide text-slate-300">Best levers right now</h3>
+              <h3 className="text-sm font-semibold uppercase tracking-wide text-slate-300">Insights</h3>
               <InfoIcon
-                title="Best levers"
-                body="Apply the recommended mix shift directly into Execution Hub. We pre-load the channel delta and keep your plan in sync."
+                title="Insights"
+                body="Auto-detected anomalies, recommended levers, and learnings adapt as you change focus or grouping."
               />
             </div>
-            <p className="mt-2 text-sm text-white">
-              {lever.recommendation} <span className="ml-1 rounded-full border border-emerald-600 bg-emerald-500/10 px-2 py-0.5 text-xs text-emerald-200">▲ +1%</span>
-            </p>
-            <div className="mt-3 flex items-center gap-2 text-xs text-slate-300">
-              <span className="rounded-full border border-slate-700 bg-slate-900 px-3 py-1">Confidence: {lever.confidence}</span>
-              {lever.cohorts.map((chip) => (
-                <span key={chip} className="rounded-full border border-slate-700 bg-slate-900 px-3 py-1">{chip}</span>
-              ))}
+            <div className="mt-3 space-y-3 text-sm text-slate-300">
+              <div>
+                <p className="text-xs uppercase tracking-wide text-slate-400">Anomalies</p>
+                <div className="mt-2 flex flex-wrap gap-2">
+                  {anomalies.length === 0 ? (
+                    <span className="text-xs text-slate-500">No significant spikes detected.</span>
+                  ) : (
+                    anomalies.map((anomaly) => (
+                      <span
+                        key={anomaly.metric}
+                        className={`rounded-full border px-3 py-1 text-xs ${
+                          anomaly.direction === 'up' ? 'border-emerald-600 text-emerald-300' : 'border-rose-600 text-rose-300'
+                        }`}
+                      >
+                        {anomalyLabel[anomaly.metric]} {anomaly.direction === 'up' ? '▲' : '▼'} {Math.abs(anomaly.z).toFixed(1)}σ
+                      </span>
+                    ))
+                  )}
+                </div>
+              </div>
+              <div>
+                <p className="text-xs uppercase tracking-wide text-slate-400">Best lever now</p>
+                <p className="mt-1 text-slate-200">{lever.recommendation} <span className="ml-1 rounded-full border border-emerald-600 bg-emerald-500/10 px-2 py-0.5 text-xs text-emerald-200">▲ +{lever.delta}%</span></p>
+                <div className="mt-2 flex flex-wrap gap-2 text-xs text-slate-300">
+                  <span className="rounded-full border border-slate-700 bg-slate-900 px-3 py-1">Confidence: {lever.confidence}</span>
+                  {lever.cohorts.map((chip) => (
+                    <span key={chip} className="rounded-full border border-slate-700 bg-slate-900 px-3 py-1">
+                      {chip}
+                    </span>
+                  ))}
+                </div>
+                <button
+                  type="button"
+                  onClick={handleApply}
+                  className="mt-3 inline-flex items-center justify-center rounded-full bg-emerald-500 px-5 py-2 text-sm font-semibold text-slate-950 shadow-lg shadow-emerald-500/30 transition hover:bg-emerald-400"
+                >
+                  Apply
+                </button>
+              </div>
+              <div>
+                <p className="text-xs uppercase tracking-wide text-slate-400">What the system is learning</p>
+                <ul className="mt-2 list-disc space-y-2 pl-5">
+                  {learnings.map((item) => (
+                    <li key={item}>{item}</li>
+                  ))}
+                </ul>
+              </div>
             </div>
-            <button
-              type="button"
-              onClick={handleApply}
-              className="mt-4 inline-flex items-center justify-center rounded-full bg-emerald-500 px-5 py-2 text-sm font-semibold text-slate-950 shadow-lg shadow-emerald-500/30 transition hover:bg-emerald-400"
-            >
-              Apply
-            </button>
-          </div>
-          <div className="rounded-xl border border-slate-800 bg-slate-950/70 p-5">
-            <div className="flex items-center gap-2">
-              <h3 className="text-sm font-semibold uppercase tracking-wide text-slate-300">What the system is learning</h3>
-              <InfoIcon
-                title="System learnings"
-                body="Key insights surfaced from live experimentation and telemetry. Use these to inform design tweaks and execution guardrails."
-              />
-            </div>
-            <ul className="mt-3 list-disc space-y-2 pl-5 text-sm text-slate-300">
-              {learningsByMode[mode].map((item) => (
-                <li key={item}>{item}</li>
-              ))}
-            </ul>
           </div>
         </div>
       </section>
 
-      {loading ? (
-        <p className="text-xs text-slate-500">Loading telemetry…</p>
+      {tileTooltip ? (
+        <div
+          className="pointer-events-none fixed z-40 rounded-lg border border-slate-800 bg-slate-950/95 px-3 py-2 text-[11px] text-slate-200 shadow-lg"
+          style={{ left: tileTooltip.x - 80, top: Math.max(tileTooltip.y - 40, 8) }}
+        >
+          <p className="font-semibold">{tileTooltip.value}</p>
+          {tileTooltip.delta ? <p className="text-emerald-300">{tileTooltip.delta}</p> : <p className="text-slate-500">No delta</p>}
+          {tileTooltip.baseline ? <p className="text-slate-400">Baseline: {tileTooltip.baseline}</p> : null}
+        </div>
       ) : null}
     </div>
   );
 };
+
+function Sparkline({ values, baseline }: { values: number[]; baseline?: number }) {
+  if (!values.length) {
+    return <div className="mt-2 h-10 rounded bg-slate-900/70" />;
+  }
+  const min = Math.min(...values, baseline ?? values[0]);
+  const max = Math.max(...values, baseline ?? values[values.length - 1]);
+  const range = max - min || 1;
+  const points = values
+    .map((value, index) => {
+      const x = (index / Math.max(values.length - 1, 1)) * 100;
+      const y = 100 - ((value - min) / range) * 100;
+      return `${x},${y}`;
+    })
+    .join(' ');
+  return (
+    <svg viewBox="0 0 100 40" className="mt-2 h-10 w-full text-emerald-400/80" preserveAspectRatio="none">
+      <polyline points={points} fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" />
+      {baseline !== undefined ? (
+        <line
+          x1="0"
+          x2="100"
+          y1={100 - ((baseline - min) / range) * 100}
+          y2={100 - ((baseline - min) / range) * 100}
+          stroke="rgba(148,163,184,0.4)"
+          strokeDasharray="2 2"
+          strokeWidth={0.6}
+        />
+      ) : null}
+    </svg>
+  );
+}
 
 export default MonitoringDashboard;
