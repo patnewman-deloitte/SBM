@@ -3,6 +3,9 @@ import { useNavigate } from 'react-router-dom';
 import { Mode, aggregateSubsegments, useAppState } from '../../appState';
 import { offersAPI, execAPI } from '../../mocks';
 import InfoIcon from '../../components/InfoIcon';
+import WhyChip from '../../components/WhyChip';
+import DriverRationalePanel from '../../components/DriverRationalePanel';
+import ActionDrawer from '../../components/ActionDrawer';
 
 const capitalise = (value: string) => value.charAt(0).toUpperCase() + value.slice(1);
 
@@ -46,6 +49,12 @@ const guardrailCopy = {
   grow: 'Cannibalization guardrail',
   retain: 'Retention guardrail'
 } as const;
+
+const actionTitles: Record<string, string> = {
+  'win-back': 'Generate win-back sequence',
+  'price-offer': 'Create price-sensitive offer',
+  'loyalty-nudge': 'Design loyalty nudge'
+};
 
 const recommendedCreativeCopy: Record<
   Mode,
@@ -172,11 +181,22 @@ const CampaignDesigner: React.FC = () => {
   const [cannibalizationGuardrail, setCannibalizationGuardrail] = React.useState(true);
   const [simulation, setSimulation] = React.useState<SimulationState>({ loading: false });
   const [pushLoading, setPushLoading] = React.useState(false);
+  const [actionsOpen, setActionsOpen] = React.useState(false);
+  const [planActions, setPlanActions] = React.useState<string[]>([]);
+  const [showRationale, setShowRationale] = React.useState(false);
 
   const aggregatedSubsegments = React.useMemo(
     () => (selectedSubsegments.length ? aggregateSubsegments(selectedSubsegments) : null),
     [selectedSubsegments]
   );
+
+  const traitList = React.useMemo(() => {
+    const pool = new Set<string>();
+    selectedSubsegments.forEach((sub) => {
+      sub.traits.forEach((trait) => pool.add(trait));
+    });
+    return Array.from(pool).slice(0, 6);
+  }, [selectedSubsegments]);
 
   const dominantTrait = React.useMemo(() => {
     if (!selectedSubsegments.length) return undefined;
@@ -196,6 +216,20 @@ const CampaignDesigner: React.FC = () => {
     });
     return best;
   }, [selectedSubsegments]);
+
+  const heroReasons = React.useMemo(() => {
+    const reasons: string[] = [`Mode lens: ${capitalise(mode)}`];
+    if (dominantTrait) {
+      reasons.push(`Dominant trait: ${dominantTrait}`);
+    }
+    if (aggregatedSubsegments) {
+      reasons.push(`Audience ${aggregatedSubsegments.size.toLocaleString()} ppl`);
+    }
+    if (selectedSegment) {
+      reasons.push(`Segment: ${selectedSegment.name}`);
+    }
+    return reasons.slice(0, 4);
+  }, [aggregatedSubsegments, dominantTrait, mode, selectedSegment]);
 
   const applyRecommendedCreative = React.useCallback(() => {
     const template = recommendedCreativeCopy[mode](selectedSegment?.name, dominantTrait);
@@ -222,6 +256,15 @@ const CampaignDesigner: React.FC = () => {
   React.useEffect(() => {
     setCreativeImage(null);
   }, [mode]);
+
+  const handleAddActionToPlan = React.useCallback(
+    (id: string) => {
+      setPlanActions((prev) => (prev.includes(id) ? prev : [...prev, id]));
+      const label = actionTitles[id] ?? id;
+      setNotes((prev) => (prev.includes(label) ? prev : `${prev}\nAction added: ${label}`));
+    },
+    [setNotes],
+  );
 
   const handleImageUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
@@ -255,7 +298,10 @@ const CampaignDesigner: React.FC = () => {
       <div className="mt-3 rounded-lg border border-slate-800 bg-slate-950/70 p-3">
         <div className="flex items-start justify-between gap-3">
           <div className="flex-1">
-            <p className="text-[11px] uppercase tracking-wide text-slate-400">{label}</p>
+            <div className="flex items-center gap-2">
+              <p className="text-[11px] uppercase tracking-wide text-slate-400">{label}</p>
+              {id === 'headline' ? <WhyChip reasons={heroReasons} title="Hero drivers" /> : null}
+            </div>
             {isEditing ? (
               multiline ? (
                 <textarea
@@ -516,6 +562,16 @@ const CampaignDesigner: React.FC = () => {
                   Select the lifecycle strategy, tune pricing and incentives, pace spend, then simulate impact before handing off to execution.
                 </p>
               </div>
+              <div className="flex flex-col items-start gap-2 md:items-end">
+                <button
+                  type="button"
+                  onClick={() => setActionsOpen(true)}
+                  className="rounded-full border border-slate-700 px-4 py-1 text-sm font-semibold text-slate-200 transition hover:bg-slate-900 focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                  aria-label="Open agentic actions"
+                >
+                  Actions
+                </button>
+              </div>
             </div>
             <div className="mt-4 flex flex-wrap items-center gap-3">
               <div className="inline-flex items-center gap-2 rounded-full border border-slate-700 bg-slate-950/80 p-1">
@@ -576,17 +632,35 @@ const CampaignDesigner: React.FC = () => {
                 ))}
               </div>
             ) : null}
-          {designMode === 'recommend' ? (
-            <div className="space-y-4">
-              <p className="text-sm text-slate-300">
-                We’ll generate campaign copy, offers, and guardrails based on this lifecycle mode. You can launch directly or jump into full customization.
+            {planActions.length ? (
+              <div className="rounded-lg border border-slate-800 bg-slate-950/70 p-4">
+                <p className="text-xs uppercase tracking-wide text-slate-400">Actions added</p>
+                <div className="mt-2 flex flex-wrap gap-2 text-xs text-emerald-200">
+                  {planActions.map((id) => (
+                    <span
+                      key={id}
+                      className="rounded-full border border-emerald-500/40 bg-emerald-500/10 px-3 py-1 font-semibold"
+                    >
+                      {actionTitles[id] ?? id}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            ) : null}
+            {designMode === 'recommend' ? (
+              <div className="space-y-4">
+                <p className="text-sm text-slate-300">
+                  We’ll generate campaign copy, offers, and guardrails based on this lifecycle mode. You can launch directly or jump into full customization.
               </p>
               <div className="rounded-lg border border-slate-800 bg-slate-950/70 p-4">
                 <p className="text-xs uppercase tracking-wide text-slate-400">Plan name</p>
                 <p className="mt-1 text-sm font-semibold text-white">{planName}</p>
               </div>
               <div className="rounded-lg border border-slate-800 bg-slate-950/70 p-4">
-                <p className="text-xs uppercase tracking-wide text-slate-400">Hero headline</p>
+                <div className="flex items-center gap-2">
+                  <p className="text-xs uppercase tracking-wide text-slate-400">Hero headline</p>
+                  <WhyChip reasons={heroReasons} title="Hero drivers" />
+                </div>
                 <p className="mt-2 text-lg font-semibold text-white">{headlineCopy}</p>
                 <p className="mt-2 text-sm text-slate-300">{subheadCopy}</p>
                 <ul className="mt-3 space-y-1 text-sm text-slate-200">
@@ -937,6 +1011,29 @@ const CampaignDesigner: React.FC = () => {
             {renderBullet(2)}
           </div>
         </div>
+        <div className="rounded-xl border border-slate-800 bg-slate-900/70 p-4">
+          <div className="flex items-center justify-between gap-2">
+            <div>
+              <h3 className="text-sm font-semibold text-white">Why this offer?</h3>
+              <p className="text-xs text-slate-400">Open the driver rationale grounded in selected traits.</p>
+            </div>
+            <button
+              type="button"
+              onClick={() => setShowRationale((prev) => !prev)}
+              className="rounded-full border border-slate-700 px-3 py-1 text-xs font-semibold text-slate-200 transition hover:bg-slate-900 focus:outline-none focus:ring-2 focus:ring-emerald-500"
+              aria-pressed={showRationale}
+              aria-label="Toggle offer rationale"
+            >
+              {showRationale ? 'Hide' : 'View'}
+            </button>
+          </div>
+          {!showRationale ? (
+            <p className="mt-3 text-xs text-slate-500">Surface core signals behind the recommended journey.</p>
+          ) : null}
+        </div>
+        {showRationale ? (
+          <DriverRationalePanel mode={mode} segmentName={selectedSegment?.name} traits={traitList} />
+        ) : null}
         <div className="rounded-xl border border-slate-800 bg-slate-900/70 p-5">
           <div className="flex items-center justify-between">
             <h3 className="text-sm font-semibold uppercase tracking-wide text-slate-300">Impact scorecard</h3>
@@ -958,7 +1055,13 @@ const CampaignDesigner: React.FC = () => {
         </div>
       </aside>
     </div>
-  </div>
+      <ActionDrawer
+        open={actionsOpen}
+        onClose={() => setActionsOpen(false)}
+        mode={mode}
+        onAddToPlan={handleAddActionToPlan}
+      />
+    </div>
   );
 };
 

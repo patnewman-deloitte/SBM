@@ -7,6 +7,8 @@ import { Mode, Subsegment, aggregateSubsegments, useAppState } from '../../appSt
 
 const capitalise = (value: string) => value.charAt(0).toUpperCase() + value.slice(1);
 
+const LOGIC_STORAGE_KEY = 'sbm.segment.includeLogic';
+
 const includeSeeds: Record<Mode, string[]> = {
   acquire: ['High intent', 'Switch ready'],
   grow: ['Upgrade friendly', 'Bundle curious'],
@@ -213,7 +215,7 @@ const matchToken = (value: string, tokens: string[]) => {
 
 const SegmentStudio: React.FC = () => {
   const navigate = useNavigate();
-  const { mode, selectedSegment, selectedSubsegments, setSelectedSegment, setSelectedSubsegments } = useAppState();
+  const { mode, selectedSegment, selectedSubsegments, setSelectedSegment, setSelectedSubsegments, setPlanId } = useAppState();
   const { pushToast } = useToast();
   const segments = React.useMemo(() => segmentCatalog[mode], [mode]);
 
@@ -221,7 +223,11 @@ const SegmentStudio: React.FC = () => {
   const [excludeTags, setExcludeTags] = React.useState<string[]>(excludeSeeds[mode]);
   const [includeInput, setIncludeInput] = React.useState('');
   const [excludeInput, setExcludeInput] = React.useState('');
-  const [includeLogic, setIncludeLogic] = React.useState<'and' | 'or'>('and');
+  const [includeLogic, setIncludeLogic] = React.useState<'AND' | 'OR'>(() => {
+    if (typeof window === 'undefined') return 'AND';
+    const stored = window.sessionStorage.getItem(LOGIC_STORAGE_KEY);
+    return stored === 'OR' ? 'OR' : 'AND';
+  });
   const [subsegments, setSubsegments] = React.useState<Subsegment[]>([]);
   const [selectedIds, setSelectedIds] = React.useState<string[]>(() =>
     selectedSubsegments.map((item) => item.id)
@@ -232,8 +238,13 @@ const SegmentStudio: React.FC = () => {
     setExcludeTags(excludeSeeds[mode]);
     setIncludeInput('');
     setExcludeInput('');
-    setIncludeLogic('and');
+    setIncludeLogic('AND');
   }, [mode]);
+
+  React.useEffect(() => {
+    if (typeof window === 'undefined') return;
+    window.sessionStorage.setItem(LOGIC_STORAGE_KEY, includeLogic);
+  }, [includeLogic]);
 
   const [activeId, setActiveId] = React.useState<string>(() => selectedSegment?.id ?? segments[0]?.id ?? '');
 
@@ -251,7 +262,7 @@ const SegmentStudio: React.FC = () => {
       const excludeTerms = excludeTags.filter(Boolean);
       const candidateTokens = [...candidate.drivers, ...candidate.channelFit];
       const includePass = includeTerms.length
-        ? includeLogic === 'and'
+        ? includeLogic === 'AND'
           ? includeTerms.every((term) => matchToken(term, candidateTokens))
           : includeTerms.some((term) => matchToken(term, candidateTokens))
         : true;
@@ -329,6 +340,40 @@ const SegmentStudio: React.FC = () => {
 
   const selectedSummary = React.useMemo(() => aggregateSubsegments(selectedSubs), [selectedSubs]);
 
+  const eligibilityPreview = React.useMemo(() => {
+    const baseSize = activeCandidate?.size ?? 0;
+    if (baseSize <= 0) {
+      return { value: 0, delta: 0 };
+    }
+    const includeCount = includeTags.filter(Boolean).length;
+    const excludeCount = excludeTags.filter(Boolean).length;
+    const includeBoost = includeLogic === 'AND' ? includeCount * 0.01 : includeCount * 0.006;
+    const excludeDrag = excludeCount * 0.008;
+    const min = 1000;
+    const max = Math.round(baseSize * 1.25);
+    let projected = Math.round(baseSize * (1 + includeBoost - excludeDrag));
+    projected = Math.min(max, Math.max(min, projected));
+    return { value: projected, delta: projected - baseSize };
+  }, [activeCandidate?.size, includeLogic, includeTags, excludeTags]);
+
+  const baselineSize = activeCandidate?.size ?? 0;
+  const previewValueLabel = baselineSize ? `${eligibilityPreview.value.toLocaleString()} ppl` : '0 ppl';
+  const previewDeltaLabel = baselineSize
+    ? `${eligibilityPreview.delta >= 0 ? '+' : '-'}${Math.abs(eligibilityPreview.delta).toLocaleString()} ppl`
+    : '+0 ppl';
+  const baselineLabel = baselineSize ? `${baselineSize.toLocaleString()} ppl` : '0 ppl';
+
+  const segmentScore = React.useMemo(() => {
+    const includeCount = includeTags.filter(Boolean).length;
+    const excludeCount = excludeTags.filter(Boolean).length;
+    let score = 62 + includeCount * 0.8 - excludeCount * 0.5;
+    if (includeLogic === 'AND' && includeCount >= 2) {
+      score += 1;
+    }
+    score = Math.max(0, Math.min(100, score));
+    return Number(score.toFixed(1));
+  }, [includeLogic, includeTags, excludeTags]);
+
   const hasRules = React.useMemo(() => {
     const includeCount = includeTags.filter(Boolean).length;
     const excludeCount = excludeTags.filter(Boolean).length;
@@ -357,6 +402,14 @@ const SegmentStudio: React.FC = () => {
     }
   }, []);
 
+  const handleRemoveTag = React.useCallback((target: 'include' | 'exclude', value: string) => {
+    if (target === 'include') {
+      setIncludeTags((prev) => prev.filter((item) => item !== value));
+    } else {
+      setExcludeTags((prev) => prev.filter((item) => item !== value));
+    }
+  }, []);
+
   const handleKeyDown = (event: React.KeyboardEvent<HTMLInputElement>, target: 'include' | 'exclude') => {
     if (event.key === 'Enter') {
       event.preventDefault();
@@ -366,16 +419,22 @@ const SegmentStudio: React.FC = () => {
 
   const handleSend = React.useCallback(() => {
     if (!activeCandidate || !canSend) return;
-    setSelectedSegment({ id: activeCandidate.id, name: activeCandidate.name, size: activeCandidate.size });
+    const summaryId = selectedSummary.id || 'audience';
+    const compositeId = selectedSubs.length ? `${activeCandidate.id}:${summaryId}` : activeCandidate.id;
+    const summaryName = selectedSubs.length ? selectedSummary.name || 'custom mix' : '';
+    const label = selectedSubs.length ? `${activeCandidate.name} (${summaryName})` : activeCandidate.name;
+    const size = selectedSummary.size || activeCandidate.size;
+    setSelectedSegment({ id: compositeId, name: label, size });
     setSelectedSubsegments(selectedSubs);
+    setPlanId(undefined);
     pushToast({ description: 'Segment sent to Campaign Designer', variant: 'success' });
     navigate('/campaign-designer');
-  }, [activeCandidate, canSend, navigate, pushToast, selectedSubs, setSelectedSegment, setSelectedSubsegments]);
+  }, [activeCandidate, canSend, navigate, pushToast, selectedSubs, selectedSummary.id, selectedSummary.name, selectedSummary.size, setPlanId, setSelectedSegment, setSelectedSubsegments]);
 
   const previewDraft = React.useMemo(() => {
     if (!lockedSegment) return undefined;
     const candidate = segments.find((item) => item.id === lockedSegment.id);
-    const logicLabel = includeLogic === 'and' ? 'strict AND filters' : 'broader OR filters';
+    const logicLabel = includeLogic === 'AND' ? 'strict AND filters' : 'broader OR filters';
     const includeSummary = includeTags.length ? includeTags.join(', ') : 'base cohort traits';
     const excludeSummary = excludeTags.length ? excludeTags.join(', ') : 'no exclusions applied';
     const score = candidate ? scoreLabel(candidate, mode) : undefined;
@@ -403,13 +462,13 @@ const SegmentStudio: React.FC = () => {
     const candidate = segments.find((item) => item.id === lockedSegment.id);
     if (!candidate) {
       return [
-        { id: 'logic', label: includeLogic === 'and' ? 'Include logic: AND' : 'Include logic: OR', passed: includeLogic === 'and' }
+        { id: 'logic', label: includeLogic === 'AND' ? 'Include logic: AND' : 'Include logic: OR', passed: includeLogic === 'AND' }
       ];
     }
     return [
       { id: 'eligibility', label: 'Credit ready', passed: candidate.eligibility },
       { id: 'consent', label: 'Consent on file', passed: candidate.consent },
-      { id: 'logic', label: includeLogic === 'and' ? 'Using AND logic' : 'Using OR logic', passed: includeLogic === 'and' }
+      { id: 'logic', label: includeLogic === 'AND' ? 'Using AND logic' : 'Using OR logic', passed: includeLogic === 'AND' }
     ];
   }, [includeLogic, lockedSegment, segments]);
 
@@ -451,33 +510,48 @@ const SegmentStudio: React.FC = () => {
               {includeTags.map((tag) => (
                 <span
                   key={tag}
-                  className="rounded-full border border-slate-700 bg-slate-950 px-3 py-1 text-xs text-slate-200"
+                  className="inline-flex items-center gap-2 rounded-full border border-slate-700 bg-slate-950 px-3 py-1 text-xs text-slate-200"
                 >
                   {tag}
+                  <button
+                    type="button"
+                    onClick={() => handleRemoveTag('include', tag)}
+                    className="rounded-full border border-slate-700 bg-slate-900 px-2 py-0.5 text-[10px] font-semibold uppercase text-slate-400 hover:bg-slate-800 focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                    aria-label={`Remove include tag ${tag}`}
+                  >
+                    x
+                  </button>
                 </span>
               ))}
-              <input
-                value={includeInput}
-                onChange={(event) => setIncludeInput(event.target.value)}
-                onKeyDown={(event) => handleKeyDown(event, 'include')}
-                placeholder="+Add"
-                className="h-8 rounded-full border border-slate-800 bg-slate-950 px-3 text-xs text-slate-200 placeholder:text-slate-500 focus:border-emerald-500 focus:outline-none"
-              />
-              <button
-                type="button"
-                onClick={() => handleAddToken(includeInput, 'include')}
-                className="h-8 rounded-full border border-emerald-500/40 bg-emerald-500/20 px-3 text-xs font-semibold text-emerald-200"
-              >
-                Add
-              </button>
+              <div className="inline-flex items-center gap-2 rounded-full border border-slate-800 bg-slate-950 px-3 py-1">
+                <input
+                  value={includeInput}
+                  onChange={(event) => setIncludeInput(event.target.value)}
+                  onKeyDown={(event) => handleKeyDown(event, 'include')}
+                  placeholder="Add"
+                  className="w-24 bg-transparent text-xs text-slate-200 placeholder:text-slate-500 focus:outline-none"
+                />
+                <button
+                  type="button"
+                  onClick={() => handleAddToken(includeInput, 'include')}
+                  className="rounded-full border border-emerald-500/40 bg-emerald-500/20 px-2 py-0.5 text-[11px] font-semibold text-emerald-200 focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                  aria-label="Add include tag"
+                >
+                  Add
+                </button>
+              </div>
               <div className="ml-auto flex items-center gap-2 text-xs text-slate-400">
                 <span>Logic</span>
                 <button
                   type="button"
-                  onClick={() => setIncludeLogic((prev) => (prev === 'and' ? 'or' : 'and'))}
-                  className="rounded-full border border-slate-700 bg-slate-950 px-3 py-1 font-semibold text-slate-200"
+                  onClick={() => setIncludeLogic((prev) => (prev === 'AND' ? 'OR' : 'AND'))}
+                  className={`rounded-full border px-3 py-1 text-xs font-semibold transition focus:outline-none focus:ring-2 focus:ring-emerald-500 ${
+                    includeLogic === 'AND' ? 'border-emerald-500/50 bg-emerald-500/10 text-emerald-200' : 'border-slate-700 bg-slate-950 text-slate-200 hover:bg-slate-900'
+                  }`}
+                  aria-pressed={includeLogic === 'AND'}
+                  aria-label="Toggle include logic"
                 >
-                  {includeLogic.toUpperCase()}
+                  {includeLogic}
                 </button>
               </div>
             </div>
@@ -492,25 +566,44 @@ const SegmentStudio: React.FC = () => {
               {excludeTags.map((tag) => (
                 <span
                   key={tag}
-                  className="rounded-full border border-slate-700 bg-slate-950 px-3 py-1 text-xs text-slate-200"
+                  className="inline-flex items-center gap-2 rounded-full border border-slate-700 bg-slate-950 px-3 py-1 text-xs text-slate-200"
                 >
                   {tag}
+                  <button
+                    type="button"
+                    onClick={() => handleRemoveTag('exclude', tag)}
+                    className="rounded-full border border-slate-700 bg-slate-900 px-2 py-0.5 text-[10px] font-semibold uppercase text-slate-400 hover:bg-slate-800 focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                    aria-label={`Remove exclude tag ${tag}`}
+                  >
+                    x
+                  </button>
                 </span>
               ))}
-              <input
-                value={excludeInput}
-                onChange={(event) => setExcludeInput(event.target.value)}
-                onKeyDown={(event) => handleKeyDown(event, 'exclude')}
-                placeholder="+Add"
-                className="h-8 rounded-full border border-slate-800 bg-slate-950 px-3 text-xs text-slate-200 placeholder:text-slate-500 focus:border-emerald-500 focus:outline-none"
-              />
-              <button
-                type="button"
-                onClick={() => handleAddToken(excludeInput, 'exclude')}
-                className="h-8 rounded-full border border-emerald-500/40 bg-emerald-500/20 px-3 text-xs font-semibold text-emerald-200"
-              >
-                Add
-              </button>
+              <div className="inline-flex items-center gap-2 rounded-full border border-slate-800 bg-slate-950 px-3 py-1">
+                <input
+                  value={excludeInput}
+                  onChange={(event) => setExcludeInput(event.target.value)}
+                  onKeyDown={(event) => handleKeyDown(event, 'exclude')}
+                  placeholder="Add"
+                  className="w-24 bg-transparent text-xs text-slate-200 placeholder:text-slate-500 focus:outline-none"
+                />
+                <button
+                  type="button"
+                  onClick={() => handleAddToken(excludeInput, 'exclude')}
+                  className="rounded-full border border-emerald-500/40 bg-emerald-500/20 px-2 py-0.5 text-[11px] font-semibold text-emerald-200 focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                  aria-label="Add exclude tag"
+                >
+                  Add
+                </button>
+              </div>
+            </div>
+          </div>
+          <div className="mt-4 rounded-lg border border-slate-800 bg-slate-950/70 px-4 py-3 text-xs text-slate-300">
+            <div className="flex flex-wrap items-center gap-4">
+              <span className="text-sm font-semibold text-white">Net eligible preview</span>
+              <span className="text-sm font-semibold text-emerald-200">{previewValueLabel}</span>
+              <span>vs baseline: {previewDeltaLabel}</span>
+              <span className="text-slate-500">Baseline {baselineLabel}</span>
             </div>
           </div>
         </div>
@@ -669,6 +762,9 @@ const SegmentStudio: React.FC = () => {
               Bundle the right slices to design against different value pools. Only selected subsegments will flow into Campaign Designer.
             </p>
             <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+              <span className="inline-flex items-center justify-center rounded-full border border-emerald-500/40 bg-emerald-500/10 px-3 py-1 text-xs font-semibold text-emerald-200">
+                Score {segmentScore}
+              </span>
               <button
                 type="button"
                 onClick={handleSend}

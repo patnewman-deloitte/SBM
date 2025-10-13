@@ -22,9 +22,11 @@ export interface AppState {
   setPlanId: (id?: string) => void;
   selectedSubsegments: Subsegment[];
   setSelectedSubsegments: (segments: Subsegment[]) => void;
+  marketLabel?: string;
+  setMarketLabel: (label?: string) => void;
   monitor: {
     auto: boolean;
-    period: '15s' | '1m' | '5m';
+    period: 'w/w' | 'm/m';
     range: '7d' | '30d' | '90d';
     groupBy: 'campaign' | 'channel' | 'cohort';
     compare: 'none' | 'prevPeriod' | 'prevPlan';
@@ -43,6 +45,7 @@ type StoredState = {
   selectedSegment?: { id: string; name: string; size: number };
   planId?: string;
   selectedSubsegments?: Subsegment[];
+  marketLabel?: string;
 };
 
 type StoredMonitor = AppState['monitor'];
@@ -91,7 +94,7 @@ const writeMonitor = (state: StoredMonitor) => {
 
 const defaultMonitor: StoredMonitor = {
   auto: true,
-  period: '15s',
+  period: 'w/w',
   range: '30d',
   groupBy: 'channel',
   compare: 'prevPeriod',
@@ -116,12 +119,13 @@ export const AppStateProvider: React.FC<React.PropsWithChildren> = ({ children }
   const [selectedSubsegments, setSelectedSubsegments] = React.useState<Subsegment[]>(
     () => stored.current?.selectedSubsegments ?? []
   );
+  const [marketLabel, setMarketLabelState] = React.useState<string | undefined>(() => stored.current?.marketLabel);
   const [monitorState, setMonitorState] = React.useState<StoredMonitor>(storedMonitor.current ?? defaultMonitor);
 
   React.useEffect(() => {
-    stored.current = { mode, selectedSegment, planId, selectedSubsegments };
+    stored.current = { mode, selectedSegment, planId, selectedSubsegments, marketLabel };
     writeStorage(stored.current);
-  }, [mode, selectedSegment, planId, selectedSubsegments]);
+  }, [mode, selectedSegment, planId, selectedSubsegments, marketLabel]);
 
   React.useEffect(() => {
     writeMonitor(monitorState);
@@ -139,12 +143,14 @@ export const AppStateProvider: React.FC<React.PropsWithChildren> = ({ children }
       setPlanId: setPlanIdState,
       selectedSubsegments,
       setSelectedSubsegments,
+      marketLabel,
+      setMarketLabel: setMarketLabelState,
       monitor: monitorState,
       setMonitor: (patch) => {
         setMonitorState((prev) => ({ ...prev, ...patch }));
       }
     }),
-    [mode, step, selectedSegment, planId, selectedSubsegments, monitorState]
+    [mode, step, selectedSegment, planId, selectedSubsegments, monitorState, marketLabel]
   );
 
   return <AppStateContext.Provider value={value}>{children}</AppStateContext.Provider>;

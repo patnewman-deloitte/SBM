@@ -7,6 +7,7 @@ import RightRail from '../../components/RightRail';
 import PlaybookPreview from '../../components/PlaybookPreview';
 import SegmentTile from '../../components/SegmentTile';
 import SelectionTray from '../../components/SelectionTray';
+import WhyChip from '../../components/WhyChip';
 import { parseIntent } from '../../lib/intentParser';
 import { simulateCampaign } from '../../sim/tinySim';
 import { useGlobalStore } from '../../store/global';
@@ -66,6 +67,26 @@ const colorFor = (s: number) => `hsl(${160 - Math.round(s * 0.6)}, 70%, ${32 + M
 const tileSize = 18;
 const tileGap = 2;
 const tileOrigin = 6;
+
+const computeMarketLabel = (filters: Filters, activeFilters: number) => {
+  const { geoLevel, areaType } = filters.peoplePlace.locationContext;
+  if (geoLevel === 'National' && areaType === 'Any' && activeFilters === 0) {
+    return 'All markets';
+  }
+  if (geoLevel === 'ZIP') {
+    return areaType !== 'Any' ? `${areaType} top 20 DMAs` : 'Top 20 DMAs';
+  }
+  if (geoLevel === 'State') {
+    return areaType !== 'Any' ? `${areaType} state clusters` : 'State clusters';
+  }
+  if (geoLevel === 'Region') {
+    return areaType !== 'Any' ? `${areaType} regional focus` : 'Regional focus';
+  }
+  if (activeFilters > 0) {
+    return `${activeFilters} filters active`;
+  }
+  return 'Focused market view';
+};
 
 const METRICS_BY_MODE = {
   acquire: [
@@ -706,7 +727,7 @@ const MarketRadar: React.FC = () => {
   const removeFromCart = useGlobalStore((s) => s.removeSegmentFromCart);
   const setActiveSegment = useGlobalStore((s) => s.setActiveSegment);
   const activeSegmentId = useGlobalStore((s) => s.activeSegmentId);
-  const { mode, setMode, selectedSegment, setSelectedSegment, setStep } = useAppState();
+  const { mode, setMode, selectedSegment, setSelectedSegment, setStep, setMarketLabel } = useAppState();
 
   const [view, setView] = React.useState<ViewMode>('market');
   const [command, setCommand] = React.useState('');
@@ -986,6 +1007,11 @@ const MarketRadar: React.FC = () => {
     () => Object.values(sectionCounts).reduce((acc, value) => acc + value, 0),
     [sectionCounts],
   );
+
+  React.useEffect(() => {
+    if (!filtersHydrated) return;
+    setMarketLabel(computeMarketLabel(filters, totalActiveFilters));
+  }, [filters, filtersHydrated, setMarketLabel, totalActiveFilters]);
 
   const shortlistAdd = React.useCallback(
     (segmentId: string) => {
@@ -1336,6 +1362,12 @@ const MarketRadar: React.FC = () => {
                 name: signal.cohortName,
                 size: signal.cohortSize
               };
+              const signalReasons = [
+                `${modeLabel[signal.mode]} focus`,
+                signal.drivers[0] ? `Driver: ${signal.drivers[0]}` : null,
+                `Signal change ${signal.change}`,
+                `Cohort ${cohort.name}`,
+              ].filter(Boolean) as string[];
               return (
                 <button
                   key={signal.id}
@@ -1349,9 +1381,12 @@ const MarketRadar: React.FC = () => {
                   }`}
                 >
                   <div className="flex items-start justify-between gap-3">
-                    <div>
-                      <p className="text-xs uppercase tracking-wide text-slate-400">{modeLabel[signal.mode]} signal</p>
-                      <h3 className="text-base font-semibold text-white">{signal.title}</h3>
+                    <div className="flex-1">
+                      <div className="flex items-center gap-2">
+                        <p className="text-xs uppercase tracking-wide text-slate-400">{modeLabel[signal.mode]} signal</p>
+                        <WhyChip reasons={signalReasons} title={`${signal.title} drivers`} />
+                      </div>
+                      <h3 className="mt-1 text-base font-semibold text-white">{signal.title}</h3>
                     </div>
                     <span className="rounded-full border border-emerald-500/30 bg-emerald-500/10 px-2 py-0.5 text-[11px] font-semibold text-emerald-200">
                       Score {signal.score}

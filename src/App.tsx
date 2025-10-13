@@ -7,6 +7,8 @@ import ExecutionHub from './tabs/ExecutionHub';
 import MonitoringDashboard from './tabs/MonitoringDashboard';
 import { useGlobalStore } from './store/global';
 import { useAppState, Step } from './appState';
+import ContextBar from './components/ContextBar';
+import ScenarioLauncher from './components/ScenarioLauncher';
 
 const tabs: Array<{ path: string; label: string; step: Step }> = [
   { path: '/', label: 'Opportunity Radar', step: 1 },
@@ -21,7 +23,7 @@ const App = () => {
   const navigate = useNavigate();
   const cartSegments = useGlobalStore((s) => s.cartSegmentIds);
   const initCampaign = useGlobalStore((s) => s.initCampaignFromSelection);
-  const { mode, step, setStep, selectedSegment } = useAppState();
+  const { mode, step, setStep, selectedSegment, monitor, marketLabel } = useAppState();
 
   useEffect(() => {
     if (location.pathname === '/segment-studio' && cartSegments.length === 0) {
@@ -86,6 +88,13 @@ const App = () => {
               </div>
             </div>
           </div>
+          <ContextBar
+            mode={mode}
+            segmentName={selectedSegment?.name}
+            marketLabel={marketLabel}
+            period={monitor.period}
+            range={monitor.range}
+          />
           <nav className="flex flex-wrap gap-2">
             {tabs.map((tab) => (
               <NavLink
@@ -115,6 +124,7 @@ const App = () => {
           <Route path="/monitoring" element={<MonitoringDashboard />} />
         </Routes>
       </main>
+      <ScenarioLauncher />
     </div>
   );
 };
