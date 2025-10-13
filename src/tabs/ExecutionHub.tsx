@@ -164,7 +164,10 @@ const ExecutionHub: React.FC = () => {
   };
 
   const handleLaunch = () => {
-    if (launching || !planId) return;
+    const total = Object.keys(channelToggles).length || 1;
+    const enabled = Object.values(channelToggles).filter(Boolean).length;
+    const readiness = Math.round((enabled / total) * 100);
+    if (launching || !planId || readiness < 34) return;
     timers.current.forEach((timer) => window.clearTimeout(timer));
     timers.current = [];
     setLaunching(true);
@@ -210,6 +213,11 @@ const ExecutionHub: React.FC = () => {
   const modeLabel = mode.charAt(0).toUpperCase() + mode.slice(1);
   const guardrails = guardrailCatalog[mode];
   const channels = channelCatalog[mode];
+  const readinessPct = React.useMemo(() => {
+    const total = Object.keys(channelToggles).length || 1;
+    const enabled = Object.values(channelToggles).filter(Boolean).length;
+    return Math.round((enabled / total) * 100);
+  }, [channelToggles]);
 
   return (
     <div className="space-y-6">
@@ -220,16 +228,31 @@ const ExecutionHub: React.FC = () => {
             {planId ? `Plan ${planId} staged for ${modeLabel.toLowerCase()} play.` : 'Push a plan from the designer to unlock launch.'}
           </p>
         </div>
-        <div className="flex flex-col items-start gap-2 text-sm sm:items-end">
-          <span className="inline-flex items-center gap-2 rounded-full border border-emerald-500/40 bg-emerald-500/10 px-3 py-1 text-xs font-semibold uppercase tracking-wide text-emerald-200">
-            <span className="h-2 w-2 rounded-full bg-emerald-400" aria-hidden="true" />
-            {modeLabel} lifecycle
-          </span>
-          {selectedSegment ? (
-            <p className="text-xs text-slate-400">
-              Locked segment: <span className="font-semibold text-slate-200">{selectedSegment.name}</span>
-            </p>
-          ) : null}
+      <div className="flex flex-col items-start gap-2 text-sm sm:items-end">
+        <span className="inline-flex items-center gap-2 rounded-full border border-emerald-500/40 bg-emerald-500/10 px-3 py-1 text-xs font-semibold uppercase tracking-wide text-emerald-200">
+          <span className="h-2 w-2 rounded-full bg-emerald-400" aria-hidden="true" />
+          {modeLabel} lifecycle
+        </span>
+        {selectedSegment ? (
+          <p className="text-xs text-slate-400">
+            Locked segment: <span className="font-semibold text-slate-200">{selectedSegment.name}</span>
+          </p>
+        ) : null}
+      </div>
+    </div>
+
+      <div className="mb-4 grid gap-3 sm:grid-cols-3">
+        <div className="rounded-lg border border-slate-800 bg-slate-950/70 p-4">
+          <p className="text-xs uppercase tracking-wide text-slate-400">Mode</p>
+          <p className="mt-1 text-base font-semibold text-white capitalize">{mode}</p>
+        </div>
+        <div className="rounded-lg border border-slate-800 bg-slate-950/70 p-4">
+          <p className="text-xs uppercase tracking-wide text-slate-400">Segment</p>
+          <p className="mt-1 text-base font-semibold text-white">{selectedSegment ? selectedSegment.name : '—'}</p>
+        </div>
+        <div className="rounded-lg border border-slate-800 bg-slate-950/70 p-4">
+          <p className="text-xs uppercase tracking-wide text-slate-400">Readiness</p>
+          <p className="mt-1 text-base font-semibold text-white">{readinessPct}% channels enabled</p>
         </div>
       </div>
 
@@ -276,6 +299,22 @@ const ExecutionHub: React.FC = () => {
                   </span>
                 ))}
               </div>
+              <div className="mt-2 flex flex-wrap gap-2 text-[11px]">
+                {guardrails.map((rule) => (
+                  <span
+                    key={`${channel.id}-${rule.id}`}
+                    className={`inline-flex items-center gap-1 rounded-full border px-2.5 py-1 font-semibold ${
+                      rule.passed ? 'border-emerald-500/30 text-emerald-200' : 'border-rose-500/40 text-rose-200'
+                    }`}
+                  >
+                    <span
+                      className={`h-1.5 w-1.5 rounded-full ${rule.passed ? 'bg-emerald-400' : 'bg-rose-400'}`}
+                      aria-hidden="true"
+                    />
+                    {rule.label}
+                  </span>
+                ))}
+              </div>
             </div>
           );
         })}
@@ -288,18 +327,42 @@ const ExecutionHub: React.FC = () => {
             Confirm included channels and trigger the lifecycle launch workflow. Timeline updates as jobs move.
           </p>
         </div>
-        <button
-          type="button"
-          onClick={handleLaunch}
-          disabled={!planId || launching}
-          className={`rounded-full px-5 py-2 text-sm font-semibold transition ${
-            !planId
-              ? 'cursor-not-allowed bg-slate-800 text-slate-500'
-              : 'bg-emerald-500 text-slate-950 hover:bg-emerald-400'
-          }`}
-        >
-          {launching ? 'Launching...' : 'Launch'}
-        </button>
+        <div className="flex flex-wrap items-center gap-3">
+          <button
+            type="button"
+            onClick={handleLaunch}
+            disabled={!planId || launching || readinessPct < 34}
+            className={`rounded-full px-5 py-2 text-sm font-semibold transition ${
+              !planId || readinessPct < 34 || launching
+                ? 'cursor-not-allowed bg-slate-800 text-slate-500'
+                : 'bg-emerald-500 text-slate-950 hover:bg-emerald-400'
+            }`}
+          >
+            {launching ? 'Launching...' : 'Launch plan'}
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              const payload = {
+                mode,
+                segment: selectedSegment,
+                channels: Object.entries(channelToggles)
+                  .filter(([, value]) => value)
+                  .map(([key]) => key),
+                planId,
+              };
+              const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
+              const link = document.createElement('a');
+              link.href = URL.createObjectURL(blob);
+              link.download = 'activation-packet.json';
+              link.click();
+              URL.revokeObjectURL(link.href);
+            }}
+            className="rounded-full border border-slate-700 px-5 py-2 text-sm text-slate-200 transition hover:bg-slate-900"
+          >
+            Export activation packet
+          </button>
+        </div>
       </div>
 
       <div className="grid gap-4 lg:grid-cols-2">
@@ -311,8 +374,32 @@ const ExecutionHub: React.FC = () => {
                 key={item.id}
                 className={`flex items-center justify-between rounded-lg border px-4 py-3 ${statusTone[item.state]}`}
               >
-                <span>{item.label}</span>
-                <span className="text-xs uppercase tracking-wide">
+                <div className="flex items-center gap-3">
+                  <span
+                    className={`flex h-7 w-7 items-center justify-center rounded-full border ${
+                      item.state === 'done'
+                        ? 'border-emerald-500/60 text-emerald-300'
+                        : item.state === 'active'
+                        ? 'border-emerald-500/40 text-emerald-200 animate-pulse'
+                        : 'border-slate-700 text-slate-500'
+                    }`}
+                    aria-hidden="true"
+                  >
+                    {item.state === 'done' ? (
+                      <svg viewBox="0 0 12 12" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth={1.8}>
+                        <path d="M2.5 6.5 4.5 9l5-6" strokeLinecap="round" strokeLinejoin="round" />
+                      </svg>
+                    ) : (
+                      <span
+                        className={`h-2 w-2 rounded-full ${
+                          item.state === 'active' ? 'bg-emerald-300' : 'bg-slate-500'
+                        }`}
+                      />
+                    )}
+                  </span>
+                  <span className="font-medium text-white">{item.label}</span>
+                </div>
+                <span className="text-xs uppercase tracking-wide text-slate-400">
                   {item.state === 'done' ? 'Done' : item.state === 'active' ? 'Running' : 'Idle'}
                 </span>
               </li>

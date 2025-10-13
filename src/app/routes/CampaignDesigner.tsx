@@ -302,10 +302,16 @@ const CampaignDesigner: React.FC = () => {
   };
 
   return (
-    <div className="lg:grid lg:grid-cols-[minmax(0,1fr)_360px] lg:items-start lg:gap-6">
-      <div className="space-y-6">
-        <div className="rounded-xl border border-slate-800 bg-slate-900/70 p-6">
-          <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
+    <div className="space-y-4">
+      {!selectedSegment ? (
+        <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm text-amber-200">
+          Select and send a segment from Segment Studio.
+        </div>
+      ) : null}
+      <div className="lg:grid lg:grid-cols-[minmax(0,1fr)_360px] lg:items-start lg:gap-6">
+        <div className="space-y-6">
+          <div className="rounded-xl border border-slate-800 bg-slate-900/70 p-6">
+            <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
             <div>
               <p className="text-xs uppercase tracking-[0.3em] text-emerald-400">Step 3 · Offer & Campaign Designer</p>
               <h1 className="mt-2 text-2xl font-semibold text-white">Shape the lifecycle play</h1>
@@ -320,9 +326,7 @@ const CampaignDesigner: React.FC = () => {
               <span className="rounded-full border border-emerald-700 bg-emerald-900/30 px-3 py-1 text-xs text-emerald-100">
                 Segment: {selectedSegment.name} • {selectedSegment.size.toLocaleString()} ppl
               </span>
-            ) : (
-              <span className="rounded-full border border-amber-700 bg-amber-900/30 px-3 py-1 text-xs text-amber-200">No segment selected</span>
-            )}
+            ) : null}
           </div>
           <div className="mt-4 grid gap-4 md:grid-cols-2">
             <label className="flex flex-col gap-2 text-sm">
@@ -590,6 +594,7 @@ const CampaignDesigner: React.FC = () => {
         </div>
       </aside>
     </div>
+  </div>
   );
 };
 

@@ -161,29 +161,6 @@ const computeKpis = (mode: Mode, metrics: MetricBundle | null): BuiltKpi[] => {
   return ids.map((id) => map.get(id) ?? buildEmptyKpi(id));
 };
 
-const buildForecastPath = (values: number[]) => {
-  if (values.length < 2) return null;
-  const recent = values.slice(-4);
-  const deltas = [] as number[];
-  for (let index = 1; index < recent.length; index += 1) {
-    deltas.push(recent[index] - recent[index - 1]);
-  }
-  const avgDelta = deltas.length ? deltas.reduce((sum, value) => sum + value, 0) / deltas.length : 0;
-  const last = recent[recent.length - 1];
-  const forecast = [last, last + avgDelta, last + avgDelta * 2];
-  const combined = [...recent, ...forecast.slice(1)];
-  const min = Math.min(...combined);
-  const max = Math.max(...combined);
-  const range = max - min || 1;
-  return combined
-    .map((value, index) => {
-      const x = (index / (combined.length - 1)) * 64;
-      const y = 24 - ((value - min) / range) * 24;
-      return `${index === 0 ? 'M' : 'L'}${x.toFixed(1)} ${y.toFixed(1)}`;
-    })
-    .join(' ');
-};
-
 const TrendBars: React.FC<{ values: number[] }> = ({ values }) => {
   if (values.length === 0) {
     return <div className="mt-3 h-12 rounded bg-slate-900/70" />;
@@ -198,6 +175,28 @@ const TrendBars: React.FC<{ values: number[] }> = ({ values }) => {
         return <div key={`${index}-${value}`} style={{ height: `${height}px` }} className="w-2 rounded bg-emerald-400/70" />;
       })}
     </div>
+  );
+};
+
+const Forecast: React.FC<{ values: number[] }> = ({ values }) => {
+  if (values.length < 2) {
+    return <div className="mt-2 h-px w-full bg-slate-800" />;
+  }
+  const pts = values.slice(-4);
+  const min = Math.min(...pts);
+  const max = Math.max(...pts);
+  const range = max - min || 1;
+  const coords = pts
+    .map((value, index) => {
+      const x = (index / (pts.length - 1 || 1)) * 100;
+      const y = 100 - ((value - min) / range) * 100;
+      return `${x},${y}`;
+    })
+    .join(' ');
+  return (
+    <svg viewBox="0 0 100 100" className="mt-2 h-4 w-full text-emerald-400/80" preserveAspectRatio="none">
+      <polyline points={coords} fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
   );
 };
 
@@ -222,8 +221,6 @@ const KpiCard: React.FC<{ kpi: BuiltKpi }> = ({ kpi }) => {
   const deltaValue = kpi.trend.length > 1 ? kpi.trend[kpi.trend.length - 1] - kpi.trend[kpi.trend.length - 2] : 0;
   const deltaText = KPI_META[id]?.deltaFormatter(deltaValue) ?? '';
   const isPositive = deltaValue >= 0;
-  const ribbon = React.useMemo(() => buildForecastPath(kpi.trend), [kpi.trend]);
-
   return (
     <div className="rounded-xl border border-slate-800 bg-slate-950/70 p-5">
       <p className="text-xs uppercase tracking-wide text-slate-400">{kpi.label}</p>
@@ -243,17 +240,17 @@ const KpiCard: React.FC<{ kpi: BuiltKpi }> = ({ kpi }) => {
           <span aria-hidden="true">{isPositive ? '▲' : '▼'}</span>
           <span>{deltaText}</span>
         </span>
-        {ribbon ? (
-          <svg className="h-6 w-16 text-emerald-400/70" viewBox="0 0 64 24" aria-hidden="true">
-            <path d={ribbon} fill="none" stroke="currentColor" strokeWidth={1} strokeLinecap="round" strokeLinejoin="round" />
-          </svg>
-        ) : (
-          <div className="h-6 w-16" />
-        )}
       </div>
+      <Forecast values={kpi.trend} />
       <TrendBars values={kpi.trend} />
     </div>
   );
+};
+
+const WHY_BY_MODE: Record<Mode, string[]> = {
+  acquire: ['Offer resonance', 'Channel mix', 'Competitive moves'],
+  grow: ['Bundle appeal', 'Price sensitivity', 'Journey cadence'],
+  retain: ['Ticket spikes', 'Service SLAs', 'Save offer fit'],
 };
 
 const MonitoringDashboard: React.FC = () => {
@@ -319,12 +316,29 @@ const MonitoringDashboard: React.FC = () => {
             {hasSeries ? 'Live telemetry flowing from execution jobs.' : 'No telemetry yet. Launch a plan to begin tracking.'}
           </p>
         </div>
-        <div className="flex flex-col items-start gap-2 text-sm sm:items-end">
-          <span className="inline-flex items-center gap-2 rounded-full border border-emerald-500/40 bg-emerald-500/10 px-3 py-1 text-xs font-semibold uppercase tracking-wide text-emerald-200">
-            <span className="h-2 w-2 rounded-full bg-emerald-400" aria-hidden="true" />
-            {modeLabel} mode
-          </span>
-          {planId ? <span className="text-xs text-slate-400">Plan id: <span className="font-semibold text-slate-200">{planId}</span></span> : null}
+        <div className="flex flex-col items-start gap-3 text-sm sm:items-end">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="rounded-full border border-slate-800 bg-slate-900 px-3 py-1 text-xs capitalize text-slate-300">
+              Mode: {mode}
+            </span>
+            {planId ? (
+              <span className="rounded-full border border-emerald-500/40 bg-emerald-500/10 px-3 py-1 text-xs text-emerald-200">
+                Plan: {planId}
+              </span>
+            ) : (
+              <span className="rounded-full border border-slate-700 px-3 py-1 text-xs text-slate-400">No plan connected</span>
+            )}
+          </div>
+          <button
+            type="button"
+            className="text-xs font-semibold text-emerald-300 transition hover:text-emerald-200"
+            onClick={() => {
+              setStep(3);
+              navigate('/campaign-designer', { state: { fromMonitoring: true } });
+            }}
+          >
+            Re-simulate in Designer
+          </button>
         </div>
       </div>
 
@@ -338,16 +352,6 @@ const MonitoringDashboard: React.FC = () => {
         <div className="lg:col-span-2 rounded-xl border border-slate-800 bg-slate-950/70 p-6">
           <div className="flex items-center justify-between">
             <h3 className="text-sm font-semibold uppercase tracking-wide text-slate-300">Learnings</h3>
-            <button
-              type="button"
-              className="text-xs font-semibold text-emerald-300 hover:text-emerald-200"
-              onClick={() => {
-                setStep(3);
-                navigate('/campaign-designer', { state: { fromMonitoring: true } });
-              }}
-            >
-              Re-simulate in Designer
-            </button>
           </div>
           <div className="mt-4 flex flex-wrap gap-2">
             {learnings.length === 0 ? (
@@ -361,6 +365,16 @@ const MonitoringDashboard: React.FC = () => {
                 </span>
               ))
             )}
+          </div>
+          <div className="mt-4 flex flex-wrap gap-2 text-[11px] text-slate-400">
+            {WHY_BY_MODE[mode].map((why) => (
+              <span
+                key={why}
+                className="rounded-full border border-slate-700 bg-slate-950 px-3 py-1 text-slate-300"
+              >
+                {why}
+              </span>
+            ))}
           </div>
         </div>
         <div className="rounded-xl border border-slate-800 bg-slate-950/70 p-6">

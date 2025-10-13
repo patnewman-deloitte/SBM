@@ -20,9 +20,8 @@ const App = () => {
   const location = useLocation();
   const navigate = useNavigate();
   const cartSegments = useGlobalStore((s) => s.cartSegmentIds);
-  const selectedMicroIds = useGlobalStore((s) => s.selectedMicroIds);
   const initCampaign = useGlobalStore((s) => s.initCampaignFromSelection);
-  const { mode, step, setStep } = useAppState();
+  const { mode, step, setStep, selectedSegment } = useAppState();
 
   useEffect(() => {
     if (location.pathname === '/segment-studio' && cartSegments.length === 0) {
@@ -31,10 +30,10 @@ const App = () => {
   }, [cartSegments.length, location.pathname, navigate]);
 
   useEffect(() => {
-    if (location.pathname === '/campaign-designer' && selectedMicroIds.length === 0) {
+    if (location.pathname === '/campaign-designer' && !selectedSegment) {
       navigate('/segment-studio');
     }
-  }, [selectedMicroIds.length, location.pathname, navigate]);
+  }, [selectedSegment, location.pathname, navigate]);
 
   useEffect(() => {
     if (location.pathname === '/campaign-designer') {
