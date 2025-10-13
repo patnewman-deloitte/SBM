@@ -173,7 +173,7 @@ const matchToken = (value: string, tokens: string[]) => {
 
 const SegmentStudio: React.FC = () => {
   const navigate = useNavigate();
-  const { mode, selectedSegment, setSelectedSegment, setStep } = useAppState();
+  const { mode, selectedSegment, setSelectedSegment } = useAppState();
   const { pushToast } = useToast();
   const segments = React.useMemo(() => segmentCatalog[mode], [mode]);
 
@@ -259,13 +259,12 @@ const SegmentStudio: React.FC = () => {
     }
   };
 
-  const handleLock = React.useCallback(() => {
+  const handleSend = React.useCallback(() => {
     if (!activeCandidate || !canSend) return;
     setSelectedSegment({ id: activeCandidate.id, name: activeCandidate.name, size: activeCandidate.size });
-    setStep(3);
     pushToast({ description: 'Segment sent to Campaign Designer', variant: 'success' });
     navigate('/campaign-designer');
-  }, [activeCandidate, canSend, navigate, pushToast, setSelectedSegment, setStep]);
+  }, [activeCandidate, canSend, navigate, pushToast, setSelectedSegment]);
 
   const previewDraft = React.useMemo(() => {
     if (!lockedSegment) return undefined;
@@ -481,7 +480,7 @@ const SegmentStudio: React.FC = () => {
             </p>
             <button
               type="button"
-              onClick={handleLock}
+              onClick={handleSend}
               className="inline-flex items-center justify-center rounded-full bg-emerald-500 px-6 py-2 text-sm font-semibold text-slate-950 shadow-lg shadow-emerald-500/30 transition hover:bg-emerald-400 disabled:cursor-not-allowed disabled:bg-slate-700 disabled:text-slate-300 disabled:shadow-none"
               disabled={!canSend}
             >
