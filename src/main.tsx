@@ -6,6 +6,7 @@ import App from './App';
 import { useGlobalStore } from './store/global';
 import { AppStoreProvider } from './store/AppStore';
 import { ToastProvider } from './components/ToastProvider';
+import { AppStateProvider } from './appState';
 
 const Root = () => {
   const hydrate = useGlobalStore((s) => s.hydrate);
@@ -17,9 +18,11 @@ const Root = () => {
   return (
     <ToastProvider>
       <AppStoreProvider>
-        <BrowserRouter>
-          <App />
-        </BrowserRouter>
+        <AppStateProvider>
+          <BrowserRouter>
+            <App />
+          </BrowserRouter>
+        </AppStateProvider>
       </AppStoreProvider>
     </ToastProvider>
   );
