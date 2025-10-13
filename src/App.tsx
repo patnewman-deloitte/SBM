@@ -6,7 +6,7 @@ import CampaignDesigner from './app/routes/CampaignDesigner';
 import ExecutionHub from './tabs/ExecutionHub';
 import MonitoringDashboard from './tabs/MonitoringDashboard';
 import { useGlobalStore } from './store/global';
-import { useAppState, Mode, Step } from './appState';
+import { useAppState, Step } from './appState';
 
 const tabs: Array<{ path: string; label: string; step: Step }> = [
   { path: '/', label: 'Opportunity Radar', step: 1 },
@@ -16,19 +16,13 @@ const tabs: Array<{ path: string; label: string; step: Step }> = [
   { path: '/monitoring', label: 'Monitoring Dashboard', step: 5 }
 ];
 
-const lifecycleModes: Array<{ id: Mode; label: string }> = [
-  { id: 'acquire', label: 'Acquire' },
-  { id: 'grow', label: 'Grow' },
-  { id: 'retain', label: 'Retain' }
-];
-
 const App = () => {
   const location = useLocation();
   const navigate = useNavigate();
   const cartSegments = useGlobalStore((s) => s.cartSegmentIds);
   const selectedMicroIds = useGlobalStore((s) => s.selectedMicroIds);
   const initCampaign = useGlobalStore((s) => s.initCampaignFromSelection);
-  const { mode, setMode, step, setStep } = useAppState();
+  const { mode, step, setStep } = useAppState();
 
   useEffect(() => {
     if (location.pathname === '/segment-studio' && cartSegments.length === 0) {
@@ -65,22 +59,8 @@ const App = () => {
               <h1 className="text-2xl font-semibold text-white">Lifecycle Playbook</h1>
             </div>
             <div className="flex flex-col items-end gap-3 sm:flex-row sm:items-center sm:justify-end">
-              <div className="flex items-center gap-1 rounded-full border border-slate-800 bg-slate-950/70 p-1 text-xs">
-                {lifecycleModes.map((item) => (
-                  <button
-                    key={item.id}
-                    type="button"
-                    onClick={() => setMode(item.id)}
-                    className={`rounded-full px-4 py-1 text-sm font-semibold transition ${
-                      mode === item.id
-                        ? 'bg-emerald-500 text-slate-950 shadow-lg shadow-emerald-500/30'
-                        : 'text-slate-300 hover:text-white'
-                    }`}
-                    aria-pressed={mode === item.id}
-                  >
-                    {item.label}
-                  </button>
-                ))}
+              <div className="rounded-full border border-slate-800 bg-slate-900 px-3 py-1 text-xs text-slate-300">
+                Mode: <span className="font-semibold capitalize">{mode}</span>
               </div>
               <div className="flex items-center gap-2" aria-label="Lifecycle progress">
                 {tabs.map((tab) => (

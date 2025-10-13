@@ -60,6 +60,36 @@ const buildOfferDepth = (mode: Mode, value: number) => {
 
 const formatCurrency = (value: number) => `$${value.toLocaleString()}`;
 
+type PredictForm = { priceDelta: number; incentiveCap: number; budget: number; dailyCap: number; loyaltySignal: number; pacingWeeks: number };
+
+function predict(mode: 'acquire', pop: number, form: PredictForm): { reach: number; conv: number; cpa: number; payback: number };
+function predict(mode: 'grow', pop: number, form: PredictForm): { reach: number; arpu: number; attach: number; clv: number };
+function predict(mode: 'retain', pop: number, form: PredictForm): { atRisk: number; saves: number; saveRate: number; churnDeltaBps: number };
+function predict(mode: Mode, pop: number, form: PredictForm) {
+  const base = Math.max(pop, 0);
+  const intensity = Math.max(0.6, Math.min(1.8, form.priceDelta / 60 || 1));
+  const budgetFactor = Math.max(0.7, Math.min(1.5, form.budget / 250000));
+  if (mode === 'acquire') {
+    const reach = Math.round(base * 0.35 * intensity);
+    const conv = Math.round(base * 0.035 * intensity);
+    const cpa = Math.max(60, Math.round(form.budget / Math.max(conv, 1)));
+    const payback = Number((8.5 - intensity * 0.6 + Math.min(1.2, form.dailyCap / 25000)).toFixed(1));
+    return { reach, conv, cpa, payback } as const;
+  }
+  if (mode === 'grow') {
+    const reach = Math.round(base * 0.45 * intensity * 0.9);
+    const arpu = Number((5.2 + form.priceDelta / 120 + form.loyaltySignal / 160).toFixed(2));
+    const attach = Number(Math.min(0.48, 0.24 + form.incentiveCap / 4000 + form.dailyCap / 160000).toFixed(2));
+    const clv = Math.round((210 + form.loyaltySignal * 6) * budgetFactor);
+    return { reach, arpu, attach, clv } as const;
+  }
+  const atRisk = Math.round(base * 0.22 * Math.max(0.7, Math.min(1.3, form.pacingWeeks / 8)));
+  const saveRate = Math.max(0.4, Math.min(0.78, 0.62 + form.incentiveCap / 300 - form.dailyCap / 200000));
+  const saves = Math.round(atRisk * saveRate);
+  const churnDeltaBps = Math.round(-35 - saveRate * 18);
+  return { atRisk, saves, saveRate, churnDeltaBps } as const;
+}
+
 const CampaignDesigner: React.FC = () => {
   const navigate = useNavigate();
   const { mode, selectedSegment, setStep, setPlanId } = useAppState();
@@ -79,6 +109,18 @@ const CampaignDesigner: React.FC = () => {
   const [cannibalizationGuardrail, setCannibalizationGuardrail] = React.useState(true);
   const [simulation, setSimulation] = React.useState<SimulationState>({ loading: false });
   const [pushLoading, setPushLoading] = React.useState(false);
+
+  const formSnapshot = React.useMemo(
+    () => ({
+      priceDelta,
+      incentiveCap,
+      budget,
+      dailyCap,
+      loyaltySignal: loyaltyPerk.trim().length,
+      pacingWeeks: Number(pacing.match(/\d+/)?.[0] ?? 6),
+    }),
+    [budget, dailyCap, incentiveCap, loyaltyPerk, pacing, priceDelta]
+  );
 
   React.useEffect(() => {
     setStrategy(strategyOptions[mode][0].id);
@@ -191,6 +233,35 @@ const CampaignDesigner: React.FC = () => {
     ];
   }, [cannibalizationGuardrail, mode, pacing, simulationFlags]);
 
+  const scoreTiles = React.useMemo(() => {
+    if (!selectedSegment) return [];
+    if (mode === 'acquire') {
+      const projection = predict('acquire', selectedSegment.size, formSnapshot);
+      return [
+        { id: 'reach', label: 'Projected reach', value: projection.reach.toLocaleString(), helper: 'Households touched' },
+        { id: 'conv', label: 'Modeled conversions', value: projection.conv.toLocaleString(), helper: 'First-cycle closes' },
+        { id: 'cpa', label: 'Blended CPA', value: formatCurrency(projection.cpa), helper: 'Spend per add' },
+        { id: 'payback', label: 'Payback (mo)', value: projection.payback.toFixed(1), helper: 'Payback horizon' },
+      ];
+    }
+    if (mode === 'grow') {
+      const projection = predict('grow', selectedSegment.size, formSnapshot);
+      return [
+        { id: 'reach', label: 'Reachable base', value: projection.reach.toLocaleString(), helper: 'Households engaged' },
+        { id: 'arpu', label: 'ARPU lift', value: `$${projection.arpu.toFixed(2)}`, helper: 'Incremental monthly lift' },
+        { id: 'attach', label: 'Attach rate', value: `${(projection.attach * 100).toFixed(1)}%`, helper: 'Expected attaches' },
+        { id: 'clv', label: 'CLV delta', value: formatCurrency(projection.clv), helper: 'Total lifetime gain' },
+      ];
+    }
+    const projection = predict('retain', selectedSegment.size, formSnapshot);
+    return [
+      { id: 'atRisk', label: 'At-risk reached', value: projection.atRisk.toLocaleString(), helper: 'Households engaged' },
+      { id: 'saves', label: 'Expected saves', value: projection.saves.toLocaleString(), helper: 'Rescues modeled' },
+      { id: 'saveRate', label: 'Save rate', value: `${(projection.saveRate * 100).toFixed(1)}%`, helper: 'Stabilized share' },
+      { id: 'churnDelta', label: 'Churn delta', value: `${projection.churnDeltaBps} bps`, helper: 'Net churn shift' },
+    ];
+  }, [formSnapshot, mode, selectedSegment]);
+
   const handlePushPlan = async () => {
     if (!selectedSegment || pushLoading) return;
     setPushLoading(true);
@@ -231,7 +302,7 @@ const CampaignDesigner: React.FC = () => {
   };
 
   return (
-    <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_320px] xl:grid-cols-[minmax(0,1fr)_360px]">
+    <div className="lg:grid lg:grid-cols-[minmax(0,1fr)_360px] lg:items-start lg:gap-6">
       <div className="space-y-6">
         <div className="rounded-xl border border-slate-800 bg-slate-900/70 p-6">
           <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
@@ -242,13 +313,18 @@ const CampaignDesigner: React.FC = () => {
                 Select the lifecycle strategy, tune pricing and incentives, pace spend, then simulate impact before handing off to execution.
               </p>
             </div>
-            <div className="rounded-lg border border-slate-800 bg-slate-950/70 px-4 py-3 text-right text-xs text-slate-300">
-              <p className="uppercase tracking-[0.3em] text-slate-500">Mode lens</p>
-              <p className="mt-1 text-sm font-semibold text-white">{capitalise(mode)}</p>
-              <p className="text-[11px] text-slate-400">Strategies, inputs, and KPIs shift by lifecycle motion.</p>
-            </div>
           </div>
-          <div className="mt-6 grid gap-4 md:grid-cols-2">
+          <div className="mb-4 mt-4 flex flex-wrap items-center gap-2">
+            <span className="rounded-full border border-slate-800 bg-slate-900 px-3 py-1 text-xs capitalize text-slate-300">Mode: {mode}</span>
+            {selectedSegment ? (
+              <span className="rounded-full border border-emerald-700 bg-emerald-900/30 px-3 py-1 text-xs text-emerald-100">
+                Segment: {selectedSegment.name} • {selectedSegment.size.toLocaleString()} ppl
+              </span>
+            ) : (
+              <span className="rounded-full border border-amber-700 bg-amber-900/30 px-3 py-1 text-xs text-amber-200">No segment selected</span>
+            )}
+          </div>
+          <div className="mt-4 grid gap-4 md:grid-cols-2">
             <label className="flex flex-col gap-2 text-sm">
               <span className="text-xs uppercase tracking-wide text-slate-400">Plan name</span>
               <input
@@ -491,9 +567,28 @@ const CampaignDesigner: React.FC = () => {
           </div>
         </div>
       </div>
-      <div>
+      <aside className="mt-6 space-y-4 lg:mt-0 lg:sticky lg:top-28">
         <PlaybookPreview mode={mode} selectedSegment={selectedSegment} draftPlan={previewDraft} guardrails={previewGuardrails} />
-      </div>
+        <div className="rounded-xl border border-slate-800 bg-slate-900/70 p-5">
+          <div className="flex items-center justify-between">
+            <h3 className="text-sm font-semibold uppercase tracking-wide text-slate-300">Impact scorecard</h3>
+            <span className="text-[11px] uppercase tracking-wide text-slate-500">Live preview</span>
+          </div>
+          {scoreTiles.length ? (
+            <div className="mt-4 grid gap-3 sm:grid-cols-2">
+              {scoreTiles.map((tile) => (
+                <div key={tile.id} className="rounded-lg border border-slate-800 bg-slate-950/70 p-4">
+                  <p className="text-xs uppercase tracking-wide text-slate-400">{tile.label}</p>
+                  <p className="mt-2 text-xl font-semibold text-white">{tile.value}</p>
+                  <p className="text-xs text-slate-400">{tile.helper}</p>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <p className="mt-4 text-sm text-slate-400">Select a segment to unlock projected impact.</p>
+          )}
+        </div>
+      </aside>
     </div>
   );
 };

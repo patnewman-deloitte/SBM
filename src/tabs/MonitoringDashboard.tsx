@@ -19,158 +19,169 @@ const toCurrency = (value: number) => `$${Math.round(value)}`;
 const average = (values: number[]) => (values.length ? values.reduce((sum, value) => sum + value, 0) / values.length : 0);
 const delta = (values: number[]) => (values.length > 1 ? values[values.length - 1] - values[0] : 0);
 
-const emptyKpis: Record<Mode, BuiltKpi[]> = {
-  acquire: [
-    { id: 'conversion', label: 'Conversion', value: '--', trend: [] },
-    { id: 'cac', label: 'CAC', value: '--', trend: [] },
-    { id: 'roi', label: 'ROI', value: '--', trend: [] }
-  ],
-  grow: [
-    { id: 'attach', label: 'Attach Rate', value: '--', trend: [] },
-    { id: 'arpu', label: 'ARPU lift', value: '--', trend: [] },
-    { id: 'ltv', label: 'LTV lift', value: '--', trend: [] }
-  ],
-  retain: [
-    { id: 'save', label: 'Save Rate', value: '--', trend: [] },
-    { id: 'survival30', label: '30-day survival', value: '--', trend: [] },
-    { id: 'survival90', label: '90-day survival', value: '--', trend: [] }
-  ]
+type KpiId = 'conversion' | 'cac' | 'roi' | 'attach' | 'arpu' | 'ltv' | 'churn' | 'saves' | 'saveRate';
+
+const KPI_SETS: Record<Mode, KpiId[]> = {
+  acquire: ['conversion', 'cac', 'roi'],
+  grow: ['attach', 'arpu', 'roi'],
+  retain: ['churn', 'saves', 'saveRate']
 };
 
+const withSign = (value: number, formatted: string) => `${value >= 0 ? '+' : ''}${formatted}`;
+
+const KPI_META: Record<KpiId, { label: string; formatter: (value: number) => string; deltaFormatter: (delta: number) => string; learning?: { threshold: number; message: (delta: number) => string } }> = {
+  conversion: {
+    label: 'Conversion',
+    formatter: (value) => toPercent(value),
+    deltaFormatter: (deltaValue) => withSign(deltaValue, `${(Math.abs(deltaValue) * 100).toFixed(1)} pts`),
+    learning: {
+      threshold: 0.003,
+      message: (deltaValue) => `Conversion moved ${(deltaValue * 100).toFixed(1)} pts`
+    }
+  },
+  cac: {
+    label: 'CAC',
+    formatter: (value) => toCurrency(value),
+    deltaFormatter: (deltaValue) => withSign(deltaValue, `$${Math.abs(deltaValue).toFixed(0)}`),
+    learning: {
+      threshold: 6,
+      message: (deltaValue) => `CAC shifted ${deltaValue.toFixed(1)}`
+    }
+  },
+  roi: {
+    label: 'ROI',
+    formatter: (value) => `${value.toFixed(1)}x`,
+    deltaFormatter: (deltaValue) => withSign(deltaValue, `${Math.abs(deltaValue).toFixed(2)}x`),
+    learning: {
+      threshold: 0.25,
+      message: (deltaValue) => `ROI changed ${deltaValue.toFixed(2)}x`
+    }
+  },
+  attach: {
+    label: 'Attach rate',
+    formatter: (value) => `${value.toFixed(1)}%`,
+    deltaFormatter: (deltaValue) => withSign(deltaValue, `${Math.abs(deltaValue).toFixed(1)} pts`),
+    learning: {
+      threshold: 2.5,
+      message: (deltaValue) => `Attach rate moved ${deltaValue.toFixed(1)} pts`
+    }
+  },
+  arpu: {
+    label: 'ARPU lift',
+    formatter: (value) => `$${value.toFixed(2)}`,
+    deltaFormatter: (deltaValue) => withSign(deltaValue, `$${Math.abs(deltaValue).toFixed(2)}`),
+    learning: {
+      threshold: 0.6,
+      message: (deltaValue) => `ARPU lift changed ${deltaValue.toFixed(2)}`
+    }
+  },
+  ltv: {
+    label: 'LTV lift',
+    formatter: (value) => toCurrency(value),
+    deltaFormatter: (deltaValue) => withSign(deltaValue, `$${Math.abs(deltaValue).toFixed(0)}`),
+    learning: {
+      threshold: 18,
+      message: (deltaValue) => `LTV lift moved ${deltaValue.toFixed(0)}`
+    }
+  },
+  churn: {
+    label: 'Churn rate',
+    formatter: (value) => `${value.toFixed(2)}%`,
+    deltaFormatter: (deltaValue) => withSign(deltaValue, `${Math.abs(deltaValue).toFixed(2)} pts`),
+    learning: {
+      threshold: 0.9,
+      message: (deltaValue) => `Churn rate moved ${deltaValue.toFixed(2)} pts`
+    }
+  },
+  saves: {
+    label: 'Saves',
+    formatter: (value) => Math.round(value).toLocaleString(),
+    deltaFormatter: (deltaValue) => withSign(deltaValue, Math.round(Math.abs(deltaValue)).toLocaleString()),
+    learning: {
+      threshold: 300,
+      message: (deltaValue) => `Saves changed ${Math.round(deltaValue).toLocaleString()}`
+    }
+  },
+  saveRate: {
+    label: 'Save rate',
+    formatter: (value) => `${(value * 100).toFixed(1)}%`,
+    deltaFormatter: (deltaValue) => withSign(deltaValue, `${(Math.abs(deltaValue) * 100).toFixed(1)} pts`),
+    learning: {
+      threshold: 0.028,
+      message: (deltaValue) => `Save rate moved ${(deltaValue * 100).toFixed(1)} pts`
+    }
+  }
+};
+
+const buildEmptyKpi = (id: KpiId): BuiltKpi => ({ id, label: KPI_META[id].label, value: '--', trend: [] });
+
 const computeKpis = (mode: Mode, metrics: MetricBundle | null): BuiltKpi[] => {
+  const ids = KPI_SETS[mode];
   if (!metrics || metrics.cvr.length === 0) {
-    return emptyKpis[mode];
+    return ids.map((id) => buildEmptyKpi(id));
   }
 
   const cvrSeries = metrics.cvr.map((point) => point.value);
   const arpuSeries = metrics.arpu.map((point) => point.value);
   const netSeries = metrics.netAdds.map((point) => point.value);
 
-  if (mode === 'acquire') {
-    const cacSeries = netSeries.map((value) => Math.round(Math.max(70, 220 - value / 20)));
-    const roiSeries = arpuSeries.map((value, index) => {
-      const cacValue = cacSeries[index] ?? cacSeries[cacSeries.length - 1] ?? 100;
-      return Number(((value * 12) / Math.max(1, cacValue)).toFixed(2));
-    });
-    return [
-      {
-        id: 'conversion',
-        label: 'Conversion',
-        value: toPercent(cvrSeries[cvrSeries.length - 1]),
-        trend: cvrSeries,
-        learning: {
-          threshold: 0.003,
-          delta: delta(cvrSeries),
-          message: `Conversion moved ${(delta(cvrSeries) * 100).toFixed(1)} pts`
-        }
-      },
-      {
-        id: 'cac',
-        label: 'CAC',
-        value: toCurrency(cacSeries[cacSeries.length - 1]),
-        trend: cacSeries,
-        learning: {
-          threshold: 6,
-          delta: delta(cacSeries),
-          message: `CAC shifted ${delta(cacSeries).toFixed(1)}`
-        }
-      },
-      {
-        id: 'roi',
-        label: 'ROI',
-        value: `${roiSeries[roiSeries.length - 1].toFixed(1)}x`,
-        trend: roiSeries,
-        learning: {
-          threshold: 0.25,
-          delta: delta(roiSeries),
-          message: `ROI changed ${delta(roiSeries).toFixed(2)}x`
-        }
-      }
-    ];
-  }
-
-  if (mode === 'grow') {
-    const attachSeries = netSeries.map((value) => Number(Math.min(75, value / 40).toFixed(1)));
-    const arpuLiftSeries = arpuSeries.map((value) => Number((value - 4).toFixed(2)));
-    const ltvSeries = arpuSeries.map((value) => Math.round(value * 18));
-    return [
-      {
-        id: 'attach',
-        label: 'Attach Rate',
-        value: `${attachSeries[attachSeries.length - 1].toFixed(1)}%`,
-        trend: attachSeries,
-        learning: {
-          threshold: 2.5,
-          delta: delta(attachSeries),
-          message: `Attach rate moved ${delta(attachSeries).toFixed(1)} pts`
-        }
-      },
-      {
-        id: 'arpu',
-        label: 'ARPU lift',
-        value: toCurrency(arpuLiftSeries[arpuLiftSeries.length - 1]),
-        trend: arpuLiftSeries,
-        learning: {
-          threshold: 0.6,
-          delta: delta(arpuLiftSeries),
-          message: `ARPU lift changed ${delta(arpuLiftSeries).toFixed(2)}`
-        }
-      },
-      {
-        id: 'ltv',
-        label: 'LTV lift',
-        value: toCurrency(ltvSeries[ltvSeries.length - 1]),
-        trend: ltvSeries,
-        learning: {
-          threshold: 18,
-          delta: delta(ltvSeries),
-          message: `LTV lift moved ${delta(ltvSeries).toFixed(0)}`
-        }
-      }
-    ];
-  }
-
-  const saveSeries = cvrSeries.map((value) => Number((72 + value * 400).toFixed(1)));
-  const survival30Series = arpuSeries.map((value) => Number((80 + value * 3).toFixed(1)));
-  const survival90Series = arpuSeries.map((value, index) => {
-    const smooth = (arpuSeries[index - 1] ?? value);
-    return Number((74 + (value + smooth) * 2.1).toFixed(1));
+  const cacSeries = netSeries.map((value) => Math.round(Math.max(70, 220 - value / 20)));
+  const roiSeries = arpuSeries.map((value, index) => {
+    const cacValue = cacSeries[index] ?? cacSeries[cacSeries.length - 1] ?? 100;
+    return Number(((value * 12) / Math.max(1, cacValue)).toFixed(2));
   });
-  return [
-    {
-      id: 'save',
-      label: 'Save Rate',
-      value: `${saveSeries[saveSeries.length - 1].toFixed(1)}%`,
-      trend: saveSeries,
-      learning: {
-        threshold: 2.8,
-        delta: delta(saveSeries),
-        message: `Save rate moved ${delta(saveSeries).toFixed(1)} pts`
-      }
-    },
-    {
-      id: 'survival30',
-      label: '30-day survival',
-      value: `${survival30Series[survival30Series.length - 1].toFixed(1)}%`,
-      trend: survival30Series,
-      learning: {
-        threshold: 1.8,
-        delta: delta(survival30Series),
-        message: `30-day survival moved ${delta(survival30Series).toFixed(1)} pts`
-      }
-    },
-    {
-      id: 'survival90',
-      label: '90-day survival',
-      value: `${survival90Series[survival90Series.length - 1].toFixed(1)}%`,
-      trend: survival90Series,
-      learning: {
-        threshold: 2.2,
-        delta: delta(survival90Series),
-        message: `90-day survival moved ${delta(survival90Series).toFixed(1)} pts`
-      }
-    }
-  ];
+  const attachSeries = netSeries.map((value) => Number(Math.min(85, value / 35).toFixed(1)));
+  const arpuLiftSeries = arpuSeries.map((value) => Number((value - 4).toFixed(2)));
+  const ltvSeries = arpuSeries.map((value) => Math.round(value * 18));
+  const churnSeries = cvrSeries.map((value) => Number((2.8 - value * 45).toFixed(2)));
+  const savesSeries = netSeries.map((value) => Math.round(Math.max(600, value * 12)));
+  const saveRateSeries = cvrSeries.map((value) => Number((0.62 + value * 1.6).toFixed(2)));
+
+  const map = new Map<KpiId, BuiltKpi>();
+  const register = (id: KpiId, series: number[]) => {
+    const meta = KPI_META[id];
+    const last = series[series.length - 1];
+    const change = delta(series);
+    const learning = meta.learning
+      ? { threshold: meta.learning.threshold, delta: change, message: meta.learning.message(change) }
+      : undefined;
+    map.set(id, { id, label: meta.label, value: meta.formatter(last), trend: series, learning });
+  };
+
+  register('conversion', cvrSeries);
+  register('cac', cacSeries);
+  register('roi', roiSeries);
+  register('attach', attachSeries);
+  register('arpu', arpuLiftSeries);
+  register('ltv', ltvSeries);
+  register('churn', churnSeries);
+  register('saves', savesSeries);
+  register('saveRate', saveRateSeries);
+
+  return ids.map((id) => map.get(id) ?? buildEmptyKpi(id));
+};
+
+const buildForecastPath = (values: number[]) => {
+  if (values.length < 2) return null;
+  const recent = values.slice(-4);
+  const deltas = [] as number[];
+  for (let index = 1; index < recent.length; index += 1) {
+    deltas.push(recent[index] - recent[index - 1]);
+  }
+  const avgDelta = deltas.length ? deltas.reduce((sum, value) => sum + value, 0) / deltas.length : 0;
+  const last = recent[recent.length - 1];
+  const forecast = [last, last + avgDelta, last + avgDelta * 2];
+  const combined = [...recent, ...forecast.slice(1)];
+  const min = Math.min(...combined);
+  const max = Math.max(...combined);
+  const range = max - min || 1;
+  return combined
+    .map((value, index) => {
+      const x = (index / (combined.length - 1)) * 64;
+      const y = 24 - ((value - min) / range) * 24;
+      return `${index === 0 ? 'M' : 'L'}${x.toFixed(1)} ${y.toFixed(1)}`;
+    })
+    .join(' ');
 };
 
 const TrendBars: React.FC<{ values: number[] }> = ({ values }) => {
@@ -186,6 +197,61 @@ const TrendBars: React.FC<{ values: number[] }> = ({ values }) => {
         const height = 20 + ((value - min) / range) * 28;
         return <div key={`${index}-${value}`} style={{ height: `${height}px` }} className="w-2 rounded bg-emerald-400/70" />;
       })}
+    </div>
+  );
+};
+
+const KpiCard: React.FC<{ kpi: BuiltKpi }> = ({ kpi }) => {
+  const id = kpi.id as KpiId;
+  const last = kpi.trend[kpi.trend.length - 1];
+  const previous = React.useRef<number | undefined>(last);
+  const [pulse, setPulse] = React.useState(false);
+
+  React.useEffect(() => {
+    if (last === undefined) return;
+    if (previous.current === undefined) {
+      previous.current = last;
+      return;
+    }
+    if (last !== previous.current) {
+      setPulse((prev) => !prev);
+      previous.current = last;
+    }
+  }, [last]);
+
+  const deltaValue = kpi.trend.length > 1 ? kpi.trend[kpi.trend.length - 1] - kpi.trend[kpi.trend.length - 2] : 0;
+  const deltaText = KPI_META[id]?.deltaFormatter(deltaValue) ?? '';
+  const isPositive = deltaValue >= 0;
+  const ribbon = React.useMemo(() => buildForecastPath(kpi.trend), [kpi.trend]);
+
+  return (
+    <div className="rounded-xl border border-slate-800 bg-slate-950/70 p-5">
+      <p className="text-xs uppercase tracking-wide text-slate-400">{kpi.label}</p>
+      <p
+        className={`mt-2 text-2xl font-semibold text-white transition-all duration-500 ease-out ${
+          pulse ? 'translate-y-0 opacity-100' : '-translate-y-1 opacity-90'
+        }`}
+      >
+        {kpi.value}
+      </p>
+      <div className="mt-2 flex items-center justify-between text-xs">
+        <span
+          className={`flex items-center gap-1 font-semibold transition-all duration-500 ease-out ${
+            isPositive ? 'text-emerald-300' : 'text-rose-300'
+          } ${pulse ? 'translate-y-0 opacity-100' : 'translate-y-1 opacity-80'}`}
+        >
+          <span aria-hidden="true">{isPositive ? '▲' : '▼'}</span>
+          <span>{deltaText}</span>
+        </span>
+        {ribbon ? (
+          <svg className="h-6 w-16 text-emerald-400/70" viewBox="0 0 64 24" aria-hidden="true">
+            <path d={ribbon} fill="none" stroke="currentColor" strokeWidth={1} strokeLinecap="round" strokeLinejoin="round" />
+          </svg>
+        ) : (
+          <div className="h-6 w-16" />
+        )}
+      </div>
+      <TrendBars values={kpi.trend} />
     </div>
   );
 };
@@ -264,11 +330,7 @@ const MonitoringDashboard: React.FC = () => {
 
       <div className="grid gap-4 md:grid-cols-3">
         {kpis.map((kpi) => (
-          <div key={kpi.id} className="rounded-xl border border-slate-800 bg-slate-950/70 p-5">
-            <p className="text-xs uppercase tracking-wide text-slate-400">{kpi.label}</p>
-            <p className="mt-2 text-2xl font-semibold text-white">{kpi.value}</p>
-            <TrendBars values={kpi.trend} />
-          </div>
+          <KpiCard key={kpi.id} kpi={kpi} />
         ))}
       </div>
 

@@ -1,6 +1,7 @@
 import React from 'react';
 import { useNavigate } from 'react-router-dom';
 import PlaybookPreview from '../../components/PlaybookPreview';
+import { useToast } from '../../components/ToastProvider';
 import { Mode, useAppState } from '../../appState';
 
 const capitalise = (value: string) => value.charAt(0).toUpperCase() + value.slice(1);
@@ -172,7 +173,8 @@ const matchToken = (value: string, tokens: string[]) => {
 
 const SegmentStudio: React.FC = () => {
   const navigate = useNavigate();
-  const { mode, selectedSegment, setSelectedSegment, setStep } = useAppState();
+  const { mode, selectedSegment, setSelectedSegment } = useAppState();
+  const { pushToast } = useToast();
   const segments = React.useMemo(() => segmentCatalog[mode], [mode]);
 
   const [includeTags, setIncludeTags] = React.useState<string[]>(includeSeeds[mode]);
@@ -227,6 +229,15 @@ const SegmentStudio: React.FC = () => {
     [activeId, filteredSegments]
   );
 
+  const hasRules = React.useMemo(() => {
+    const includeCount = includeTags.filter(Boolean).length;
+    const excludeCount = excludeTags.filter(Boolean).length;
+    if (includeCount + excludeCount > 0) return true;
+    return (activeCandidate?.drivers?.length ?? 0) > 0;
+  }, [activeCandidate, excludeTags, includeTags]);
+
+  const canSend = Boolean(activeCandidate && activeCandidate.size >= 5000 && hasRules);
+
   const lockedSegment = selectedSegment;
 
   const handleAddToken = React.useCallback((value: string, target: 'include' | 'exclude') => {
@@ -248,12 +259,12 @@ const SegmentStudio: React.FC = () => {
     }
   };
 
-  const handleLock = React.useCallback(() => {
-    if (!activeCandidate) return;
+  const handleSend = React.useCallback(() => {
+    if (!canSend || !activeCandidate) return;
     setSelectedSegment({ id: activeCandidate.id, name: activeCandidate.name, size: activeCandidate.size });
-    setStep(3);
+    pushToast({ description: 'Segment sent to Campaign Designer', variant: 'success' });
     navigate('/campaign-designer');
-  }, [activeCandidate, navigate, setSelectedSegment, setStep]);
+  }, [activeCandidate, canSend, navigate, pushToast, setSelectedSegment]);
 
   const previewDraft = React.useMemo(() => {
     if (!lockedSegment) return undefined;
@@ -465,15 +476,15 @@ const SegmentStudio: React.FC = () => {
           </div>
           <div className="mt-6 flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
             <p className="text-sm text-slate-300">
-              Lock the highlighted cohort to sync the lifecycle preview and move into the Offer & Campaign Designer.
+              Send the highlighted cohort forward when the audience meets guardrails and has enough scale for campaign design.
             </p>
             <button
               type="button"
-              onClick={handleLock}
+              onClick={handleSend}
               className="inline-flex items-center justify-center rounded-full bg-emerald-500 px-6 py-2 text-sm font-semibold text-slate-950 shadow-lg shadow-emerald-500/30 transition hover:bg-emerald-400 disabled:cursor-not-allowed disabled:bg-slate-700 disabled:text-slate-300 disabled:shadow-none"
-              disabled={!activeCandidate}
+              disabled={!canSend}
             >
-              Lock segment → Designer
+              Send segment to Campaign Designer
             </button>
           </div>
         </div>

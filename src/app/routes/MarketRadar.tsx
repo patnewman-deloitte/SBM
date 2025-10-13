@@ -12,6 +12,33 @@ import { simulateCampaign } from '../../sim/tinySim';
 import { useGlobalStore } from '../../store/global';
 import { Mode, useAppState } from '../../appState';
 
+const ModeSelector: React.FC<{ mode: Mode; onChange: (mode: Mode) => void }> = ({ mode, onChange }) => (
+  <div className="mb-6 grid grid-cols-3 gap-3">
+    {(['acquire', 'grow', 'retain'] as Mode[]).map((m) => (
+      <button
+        key={m}
+        type="button"
+        onClick={() => onChange(m)}
+        aria-pressed={mode === m}
+        className={`rounded-xl border px-4 py-3 text-left transition ${
+          mode === m
+            ? 'border-emerald-500 bg-emerald-500/10 shadow-lg'
+            : 'border-slate-800 bg-slate-950 hover:bg-slate-900'
+        }`}
+      >
+        <p className="text-sm font-semibold capitalize">{m}</p>
+        <p className="text-xs text-slate-400">
+          {m === 'acquire'
+            ? 'Net-new demand'
+            : m === 'grow'
+              ? 'Upsell & bundles'
+              : 'Save at-risk base'}
+        </p>
+      </button>
+    ))}
+  </div>
+);
+
 type ViewMode = 'market' | 'map';
 
 type StateMetric = {
@@ -40,38 +67,57 @@ const tileSize = 18;
 const tileGap = 2;
 const tileOrigin = 6;
 
-type HeroKpi = { id: string; label: string; value: string; helper?: string };
+const METRICS_BY_MODE = {
+  acquire: [
+    { key: 'tam', label: 'Targetable TAM', fmt: 'int' },
+    { key: 'reach', label: 'Reachable %', fmt: 'pct' },
+    { key: 'cvr', label: 'Expected CVR', fmt: 'pct' },
+    { key: 'payback', label: 'CAC payback', fmt: 'text' }
+  ],
+  grow: [
+    { key: 'eligible', label: 'Eligible base', fmt: 'int' },
+    { key: 'arpu', label: 'Offerable ARPU lift', fmt: 'currency' },
+    { key: 'ltv', label: 'LTV delta', fmt: 'currency' },
+    { key: 'take', label: 'Expected take rate', fmt: 'pct' }
+  ],
+  retain: [
+    { key: 'risk', label: 'At-risk count', fmt: 'int' },
+    { key: 'exposure', label: 'Risk exposure $', fmt: 'currency' },
+    { key: 'save-prob', label: 'Save probability', fmt: 'pct' },
+    { key: 'saves', label: 'Expected saves', fmt: 'int' }
+  ]
+} as const;
 
-const modeMeta: Record<Mode, { blurb: string; hero: HeroKpi[] }> = {
+const HERO_DATA = {
   acquire: {
-    blurb: 'Spot greenfield demand and fill the top of the lifecycle with net-new households.',
-    hero: [
-      { id: 'tam', label: 'TAM in scope', value: '1.8M HHs' },
-      { id: 'reach', label: 'Reachable %', value: '68%' },
-      { id: 'cvr', label: 'Expected CVR', value: '3.4%' },
-      { id: 'payback', label: 'CAC payback', value: '8.5 mo' },
-      { id: 'adds', label: 'Net adds', value: '+42k' }
-    ]
+    tam: 1_800_000,
+    reach: 0.68,
+    cvr: 0.034,
+    payback: '8.5 mo'
   },
   grow: {
-    blurb: 'Find expansion-ready cohorts to deepen relationships and lift value.',
-    hero: [
-      { id: 'eligible', label: 'Eligible base', value: '940k HHs' },
-      { id: 'arpu', label: 'Offerable ARPU lift', value: '+$5.20' },
-      { id: 'ltv', label: 'LTV delta', value: '+$210' },
-      { id: 'cannibal', label: 'Cannibalization risk', value: '12%' },
-      { id: 'take', label: 'Expected take rate', value: '24%' }
-    ]
+    eligible: 940_000,
+    arpu: 5.2,
+    ltv: 210,
+    take: 0.24
   },
   retain: {
-    blurb: 'Identify churn exposure and prioritize save motions with highest impact.',
-    hero: [
-      { id: 'risk', label: 'At-risk count', value: '210k HHs' },
-      { id: 'exposure', label: 'Risk exposure $', value: '$86M' },
-      { id: 'save-prob', label: 'Save probability', value: '62%' },
-      { id: 'cost-vs-ltv', label: 'Cost to save vs LTV', value: '0.38x' },
-      { id: 'saves', label: 'Expected saves', value: '39k' }
-    ]
+    risk: 210_000,
+    exposure: 86_000_000,
+    'save-prob': 0.62,
+    saves: 39_000
+  }
+} as const;
+
+const modeMeta: Record<Mode, { blurb: string }> = {
+  acquire: {
+    blurb: 'Spot greenfield demand and fill the top of the lifecycle with net-new households.'
+  },
+  grow: {
+    blurb: 'Find expansion-ready cohorts to deepen relationships and lift value.'
+  },
+  retain: {
+    blurb: 'Identify churn exposure and prioritize save motions with highest impact.'
   }
 };
 
@@ -319,6 +365,33 @@ const clamp = (value: number, min: number, max: number) => Math.min(Math.max(val
 const toTitle = (value: string) => value.charAt(0).toUpperCase() + value.slice(1);
 
 const formatNumber = (value: number) => value.toLocaleString('en-US');
+
+type MetricConfig = (typeof METRICS_BY_MODE)[Mode][number];
+
+const formatHeroValue = (value: number | string, formatter: MetricConfig) => {
+  if (typeof value === 'string') {
+    return value;
+  }
+  switch (formatter.fmt) {
+    case 'int':
+      {
+        const base = formatNumber(Math.round(value));
+        return ['tam', 'eligible', 'risk', 'saves'].includes(formatter.key)
+          ? `${base} HHs`
+          : base;
+      }
+    case 'pct':
+      return `${(value * 100).toFixed(1)}%`;
+    case 'currency':
+      if (formatter.key === 'arpu') {
+        return `$${value.toFixed(2)}`;
+      }
+      return `$${formatNumber(Math.round(value))}`;
+    case 'text':
+    default:
+      return String(value);
+  }
+};
 
 const UsChoropleth: React.FC<UsChoroplethProps> = ({ onChangeSelected }) => {
   const metrics = React.useMemo(() => getStateMetrics(), []);
@@ -633,7 +706,7 @@ const MarketRadar: React.FC = () => {
   const removeFromCart = useGlobalStore((s) => s.removeSegmentFromCart);
   const setActiveSegment = useGlobalStore((s) => s.setActiveSegment);
   const activeSegmentId = useGlobalStore((s) => s.activeSegmentId);
-  const { mode, selectedSegment, setSelectedSegment, setStep } = useAppState();
+  const { mode, setMode, selectedSegment, setSelectedSegment, setStep } = useAppState();
 
   const [view, setView] = React.useState<ViewMode>('market');
   const [command, setCommand] = React.useState('');
@@ -656,15 +729,10 @@ const MarketRadar: React.FC = () => {
     return map;
   }, [segments]);
 
-  const [lens, setLens] = React.useState<Mode>(mode);
-  const filteredSignals = React.useMemo(() => radarSignals.filter((signal) => signal.mode === lens), [lens]);
+  const filteredSignals = React.useMemo(() => radarSignals.filter((signal) => signal.mode === mode), [mode]);
   const [selectedSignalId, setSelectedSignalId] = React.useState<string | undefined>(() =>
     filteredSignals.length ? filteredSignals[0].id : undefined,
   );
-
-  React.useEffect(() => {
-    setLens(mode);
-  }, [mode]);
 
   React.useEffect(() => {
     if (!filteredSignals.length) {
@@ -714,7 +782,16 @@ const MarketRadar: React.FC = () => {
   }, [activeSignal, segmentLookup, selectedSegment, setSelectedSegment]);
 
   const hero = modeMeta[mode];
-  const intentCopy = modeIntent[lens];
+  const heroTiles = React.useMemo(() => {
+    const metrics = METRICS_BY_MODE[mode];
+    const data = HERO_DATA[mode];
+    return metrics.map((metric) => ({
+      id: metric.key,
+      label: metric.label,
+      value: formatHeroValue(data[metric.key as keyof typeof data], metric),
+    }));
+  }, [mode]);
+  const intentCopy = modeIntent[mode];
   const activeSignalCohort = React.useMemo(() => {
     if (!activeSignal) return undefined;
     return segmentLookup.get(activeSignal.cohortId) ?? {
@@ -1224,6 +1301,7 @@ const MarketRadar: React.FC = () => {
 
   return (
     <div className="space-y-6">
+      <ModeSelector mode={mode} onChange={setMode} />
       <div className="card border border-emerald-500/20 bg-slate-900/70 p-5">
         <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
           <div>
@@ -1235,34 +1313,17 @@ const MarketRadar: React.FC = () => {
             description="Start here to explore the universe, tune filters, and shortlist the strongest cohorts before moving on."
           />
         </div>
-        <div className="mt-4 flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
-          <div className="flex items-center gap-3">
-            <label htmlFor="mode-lens" className="text-xs uppercase tracking-wide text-slate-400">
-              Mode lens
-            </label>
-            <select
-              id="mode-lens"
-              value={lens}
-              onChange={(event) => setLens(event.target.value as Mode)}
-              className="rounded-md border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-white focus:border-emerald-500 focus:outline-none"
-            >
-              {(Object.keys(modeLabel) as Mode[]).map((option) => (
-                <option key={option} value={option}>
-                  {modeLabel[option]}
-                </option>
-              ))}
-            </select>
-          </div>
-          <span className="text-xs text-slate-500">Signal set updates when you change the lens.</span>
+        <div className="mt-4 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+          <span className="inline-flex items-center gap-2 rounded-full border border-emerald-500/30 bg-emerald-500/10 px-3 py-1 text-xs font-semibold text-emerald-200">
+            {modeLabel[mode]} mode in focus
+          </span>
+          <span className="text-xs text-slate-400">{intentCopy}</span>
         </div>
-        <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
-          {hero.hero.map((kpi) => (
+        <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+          {heroTiles.map((kpi) => (
             <div key={kpi.id} className="rounded-xl border border-slate-800 bg-slate-950/60 p-4">
               <p className="text-xs uppercase tracking-wide text-slate-400">{kpi.label}</p>
               <p className="mt-2 text-xl font-semibold text-white">{kpi.value}</p>
-              {kpi.helper ? (
-                <p className="text-[10px] uppercase tracking-wide text-slate-500">{kpi.helper}</p>
-              ) : null}
             </div>
           ))}
         </div>
@@ -1311,14 +1372,14 @@ const MarketRadar: React.FC = () => {
                   <div className="mt-4 rounded-lg border border-slate-800 bg-slate-900/70 p-3 text-xs text-slate-400">
                     <p className="text-sm font-semibold text-white">{cohort.name}</p>
                     <p className="mt-1">Size: {formatNumber(cohort.size)} HHs</p>
-                    <p>Lifecycle lens: {modeLabel[signal.mode]}</p>
+                    <p>Lifecycle mode: {modeLabel[signal.mode]}</p>
                   </div>
                 </button>
               );
             })
           ) : (
             <div className="rounded-xl border border-slate-800 bg-slate-950/60 p-4 text-sm text-slate-300">
-              No signals for this lens yet. Adjust filters to unlock more opportunities.
+              No signals for this mode yet. Adjust filters to unlock more opportunities.
             </div>
           )}
         </div>
