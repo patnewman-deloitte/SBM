@@ -15,9 +15,10 @@ type Props = {
   kpis?: { label: string; value: string | number; info?: InfoProps }[];
   sections: RightRailSection[];
   action?: React.ReactNode;
+  preview?: React.ReactNode;
 };
 
-const RightRail: React.FC<Props> = ({ title, subtitle, kpis = [], sections, action }) => {
+const RightRail: React.FC<Props> = ({ title, subtitle, kpis = [], sections, action, preview }) => {
   const [openSections, setOpenSections] = React.useState<Record<string, boolean>>(() => {
     return sections.reduce((acc, section) => {
       acc[section.id] = section.defaultOpen ?? true;
@@ -38,6 +39,7 @@ const RightRail: React.FC<Props> = ({ title, subtitle, kpis = [], sections, acti
         </div>
         <InfoPopover title={title} description="Use this panel to unpack the selected cohort and recommended moves." />
       </header>
+      {preview ? <div>{preview}</div> : null}
       {kpis.length ? (
         <div className="grid grid-cols-2 gap-3">
           {kpis.map((kpi) => (
