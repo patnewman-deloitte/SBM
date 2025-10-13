@@ -2,6 +2,7 @@ import React from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Mode, useAppState } from '../appState';
 import InfoIcon from '../components/InfoIcon';
+import WhyChip from '../components/WhyChip';
 
 type ChannelKey = 'Search' | 'Social' | 'Email' | 'Retail' | 'Field';
 
@@ -34,6 +35,78 @@ type Anomaly = { metric: 'cvr' | 'arpu' | 'netAdds' | 'churn'; direction: 'up' |
 type HoverTooltip = { id: KpiKey; x: number; y: number; value: string; delta?: string | null; baseline?: string };
 
 type ChartTooltip = { x: number; y: number; lines: Array<{ label: string; value: string }>; timestamp: string };
+
+type PulseEntry = {
+  id: string;
+  title: string;
+  blurb: string;
+  reasons: string[];
+  onView: () => void;
+  disabled?: boolean;
+  tone: 'risk' | 'opportunity' | 'insight';
+};
+
+const toneHeading: Record<PulseEntry['tone'], string> = {
+  risk: 'text-rose-300',
+  opportunity: 'text-emerald-300',
+  insight: 'text-sky-300',
+};
+
+const PulseColumn: React.FC<{ title: string; tone: PulseEntry['tone']; items: PulseEntry[] }> = ({ title, tone, items }) => (
+  <div>
+    <p className={`text-xs font-semibold uppercase tracking-wide ${toneHeading[tone]}`}>{title}</p>
+    <div className="mt-2 flex gap-3 overflow-x-auto pb-2">
+      {items.map((item) => {
+        const buttonClasses = item.disabled
+          ? 'w-full text-left text-slate-400 cursor-default'
+          : 'w-full text-left text-slate-200 hover:text-white focus:outline-none focus:ring-2 focus:ring-emerald-500';
+        return (
+          <div
+            key={item.id}
+            className="min-w-[220px] rounded-xl border border-slate-800 bg-slate-950/70 p-3 shadow-inner shadow-slate-900/20"
+          >
+            <button
+              type="button"
+              onClick={item.onView}
+              disabled={item.disabled}
+              aria-disabled={item.disabled}
+              className={buttonClasses}
+              aria-label={`${title} ${item.title}`}
+            >
+              <p className="text-sm font-semibold text-white">{item.title}</p>
+              <p className="mt-1 text-[11px] text-slate-300">{item.blurb}</p>
+            </button>
+            <div className="mt-3 flex items-center justify-between gap-2">
+              <span className="text-[11px] text-slate-400">View drivers</span>
+              <WhyChip reasons={item.reasons} title={`${title} drivers`} />
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  </div>
+);
+
+const PulseRail: React.FC<{ risks: PulseEntry[]; opportunities: PulseEntry[]; insights: PulseEntry[] }> = ({
+  risks,
+  opportunities,
+  insights,
+}) => (
+  <div className="mt-6 rounded-lg border border-slate-800 bg-slate-950/60 p-4">
+    <div className="flex items-center gap-2 text-xs uppercase tracking-[0.3em] text-slate-400">
+      <span>Pulse</span>
+      <InfoIcon
+        title="Pulse strip"
+        body="Snapshot of urgent risks, emerging opportunities, and curated insights. Click to focus tiles, or open drivers for context."
+      />
+    </div>
+    <div className="mt-4 grid gap-4 lg:grid-cols-3">
+      <PulseColumn title="Risks" tone="risk" items={risks} />
+      <PulseColumn title="Opportunities" tone="opportunity" items={opportunities} />
+      <PulseColumn title="Insights" tone="insight" items={insights} />
+    </div>
+  </div>
+);
 
 const channelKeys: ChannelKey[] = ['Search', 'Social', 'Email', 'Retail', 'Field'];
 
@@ -445,7 +518,7 @@ const MonitoringDashboard: React.FC = () => {
     setChannelHoverIndex(null);
   }, [mode, range, groupBy]);
 
-  const periodMs = React.useMemo(() => (period === '15s' ? 15000 : period === '1m' ? 60000 : 300000), [period]);
+  const periodMs = React.useMemo(() => (period === 'w/w' ? 60000 : 180000), [period]);
   const tick = useTicker(auto, periodMs);
 
   React.useEffect(() => {
@@ -466,7 +539,9 @@ const MonitoringDashboard: React.FC = () => {
 
   const cohorts = React.useMemo(() => buildCohorts(timeline, mode, groupBy), [timeline, mode, groupBy]);
   const anomalies = React.useMemo(() => computeAnomalies(timeline), [timeline]);
+  const groupLabel = groupBy === 'campaign' ? 'campaigns' : groupBy === 'channel' ? 'channels' : 'cohorts';
   const kpiCards = React.useMemo(() => {
+    const rangeLabel = range === '7d' ? 'last 7 days' : range === '30d' ? 'last 30 days' : 'last 90 days';
     return kpiConfig.map((config) => {
       const metricSeries = timeline[config.metric];
       const latest = metricSeries[metricSeries.length - 1];
@@ -478,6 +553,15 @@ const MonitoringDashboard: React.FC = () => {
         diff = latest - (baselineRef.current[config.metric] ?? previous);
       }
       const delta = compare === 'none' ? null : formatDelta(config.metric, diff);
+      const compareReason =
+        compare === 'none'
+          ? 'Comparison disabled'
+          : compare === 'prevPeriod'
+          ? `vs previous period (${formatValue(config.metric, previous)})`
+          : `vs previous plan (${formatValue(config.metric, baselineRef.current[config.metric] ?? previous)})`;
+      const focusReason =
+        focus?.kpi === config.focus ? 'Focus locked from Pulse' : `Monitor ${groupLabel}`;
+      const reasons = [`Latest: ${formatValue(config.metric, latest)}`, `Range: ${rangeLabel}`, compareReason, focusReason];
       return {
         ...config,
         value: formatValue(config.metric, latest),
@@ -486,9 +570,10 @@ const MonitoringDashboard: React.FC = () => {
         deltaPositive: config.metric === 'churn' ? diff <= 0 : diff >= 0,
         trend: metricSeries,
         baseline: compare === 'prevPlan' ? baselineRef.current[config.metric] : compare === 'prevPeriod' ? previous : undefined,
+        reasons,
       };
     });
-  }, [compare, timeline]);
+  }, [compare, focus?.kpi, groupLabel, range, timeline]);
 
   const learnings = React.useMemo(() => {
     const baseLearnings = [...learningsByMode[mode][groupBy]];
@@ -507,6 +592,103 @@ const MonitoringDashboard: React.FC = () => {
     }
     return baseLearnings.slice(0, 4);
   }, [mode, groupBy, focus]);
+
+  const modeLabel = mode === 'acquire' ? 'Acquire' : mode === 'grow' ? 'Grow' : 'Retain';
+
+  const pulseData = React.useMemo(() => {
+    const abs = (value: number) => Math.abs(value).toFixed(1);
+    const risks = anomalies
+      .filter(
+        (anomaly) =>
+          (anomaly.metric === 'churn' && anomaly.direction === 'up') ||
+          (anomaly.metric === 'netAdds' && anomaly.direction === 'down') ||
+          ((anomaly.metric === 'cvr' || anomaly.metric === 'arpu') && anomaly.direction === 'down'),
+      )
+      .slice(0, 3)
+      .map((anomaly, index) => {
+        const magnitude = abs(anomaly.z);
+        const title =
+          anomaly.metric === 'churn'
+            ? 'Churn spike'
+            : anomaly.metric === 'netAdds'
+            ? 'Net adds softening'
+            : anomaly.metric === 'cvr'
+            ? 'CVR slide'
+            : 'ARPU compression';
+        const reasons =
+          anomaly.metric === 'churn'
+            ? [`Churn up ${magnitude} sigma vs trend`, 'Retention guardrails triggered', `Inspect ${groupLabel}`]
+            : anomaly.metric === 'netAdds'
+            ? [`Net adds down ${magnitude} sigma`, 'Channel pacing lagging', `Review ${groupLabel}`]
+            : [`${anomalyLabel[anomaly.metric]} down ${magnitude} sigma`, 'Performance pressure building', `Inspect ${groupLabel}`];
+        return {
+          id: `risk-${anomaly.metric}-${index}`,
+          title,
+          blurb: `${anomalyLabel[anomaly.metric]} ${anomaly.direction === 'up' ? 'up' : 'down'} ${magnitude} sigma`,
+          reasons,
+          onView: () => setMonitor({ focus: { kpi: anomaly.metric } }),
+          tone: 'risk' as const,
+        } satisfies PulseEntry;
+      });
+
+    const opportunities = anomalies
+      .filter((anomaly) => (anomaly.metric === 'cvr' || anomaly.metric === 'arpu') && anomaly.direction === 'up')
+      .slice(0, 3)
+      .map((anomaly, index) => {
+        const magnitude = abs(anomaly.z);
+        const title = anomaly.metric === 'cvr' ? 'CVR momentum' : 'ARPU lift';
+        const reasons =
+          anomaly.metric === 'cvr'
+            ? [`CVR up ${magnitude} sigma`, 'Funnel conversion heating up', `Lean into ${groupLabel}`]
+            : [`ARPU up ${magnitude} sigma`, 'Value per subscriber rising', `Mode lens: ${modeLabel}`];
+        return {
+          id: `opportunity-${anomaly.metric}-${index}`,
+          title,
+          blurb: `${anomalyLabel[anomaly.metric]} up ${magnitude} sigma`,
+          reasons,
+          onView: () => setMonitor({ focus: { kpi: anomaly.metric } }),
+          tone: 'opportunity' as const,
+        } satisfies PulseEntry;
+      });
+
+    const insightItems = learnings.slice(0, 3).map((text, index) => {
+      const firstSentence = text.split('. ')[0] ?? text;
+      const shortTitle = firstSentence.length > 60 ? `${firstSentence.slice(0, 57)}...` : firstSentence;
+      const trimmed = text.length > 100 ? `${text.slice(0, 97)}...` : text;
+      const lower = text.toLowerCase();
+      const metric: 'cvr' | 'arpu' | 'netAdds' | 'churn' = lower.includes('churn')
+        ? 'churn'
+        : lower.includes('cvr') || lower.includes('conversion')
+        ? 'cvr'
+        : lower.includes('arpu') || lower.includes('revenue')
+        ? 'arpu'
+        : 'netAdds';
+      return {
+        id: `insight-${index}`,
+        title: shortTitle,
+        blurb: trimmed,
+        reasons: [text, `Mode lens: ${modeLabel}`, `Share with ${groupLabel}`],
+        onView: () => setMonitor({ focus: { kpi: metric } }),
+        tone: 'insight' as const,
+      } satisfies PulseEntry;
+    });
+
+    const fallback = (tone: PulseEntry['tone']): PulseEntry => ({
+      id: `${tone}-steady`,
+      title: tone === 'risk' ? 'Stable outlook' : tone === 'opportunity' ? 'Watching lift' : 'Insights steady',
+      blurb: tone === 'risk' ? 'No critical deviations flagged.' : tone === 'opportunity' ? 'Monitoring for emerging lift.' : 'Review existing learnings.',
+      reasons: ['No new signals surfaced', `Mode lens: ${modeLabel}`, `Keep scanning ${groupLabel}`],
+      onView: () => setMonitor({ focus: null }),
+      disabled: true,
+      tone,
+    });
+
+    return {
+      risks: risks.length ? risks : [fallback('risk')],
+      opportunities: opportunities.length ? opportunities : [fallback('opportunity')],
+      insights: insightItems.length ? insightItems : [fallback('insight')],
+    };
+  }, [anomalies, groupLabel, learnings, modeLabel, setMonitor]);
 
   const lever = leverByMode[mode];
 
@@ -755,12 +937,11 @@ const MonitoringDashboard: React.FC = () => {
               <span>Period</span>
               <select
                 value={period}
-                onChange={(event) => setMonitor({ period: event.target.value as '15s' | '1m' | '5m' })}
+                onChange={(event) => setMonitor({ period: event.target.value as 'w/w' | 'm/m' })}
                 className="rounded-lg border border-slate-800 bg-slate-950/70 px-3 py-2 text-sm text-slate-200"
               >
-                <option value="15s">15s</option>
-                <option value="1m">1m</option>
-                <option value="5m">5m</option>
+                <option value="w/w">Week over week</option>
+                <option value="m/m">Month over month</option>
               </select>
             </label>
             <label className="flex items-center gap-2 text-xs text-slate-300">
@@ -795,6 +976,7 @@ const MonitoringDashboard: React.FC = () => {
             </button>
           </div>
         </div>
+        <PulseRail risks={pulseData.risks} opportunities={pulseData.opportunities} insights={pulseData.insights} />
       </header>
       <section className="grid gap-4 md:grid-cols-5">
         {kpiCards.map((card) => (
@@ -819,12 +1001,13 @@ const MonitoringDashboard: React.FC = () => {
             }`}
           >
             <div className="flex items-start justify-between">
-              <div>
+              <div className="flex items-center gap-2">
                 <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">{card.label}</p>
-                <p className="mt-1 text-lg font-semibold text-white">{card.value}</p>
+                <WhyChip reasons={card.reasons} title={`${card.label} drivers`} />
               </div>
               <InfoIcon title={card.label} body={card.tooltip} />
             </div>
+            <p className="mt-1 text-lg font-semibold text-white">{card.value}</p>
             {card.delta ? (
               <p className={`mt-1 text-xs font-semibold ${card.deltaPositive ? 'text-emerald-300' : 'text-rose-300'}`}>
                 {card.delta}

@@ -2,6 +2,7 @@ import React from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { Mode, useAppState } from '../appState';
 import InfoIcon from '../components/InfoIcon';
+import ActionDrawer from '../components/ActionDrawer';
 
 type ChannelKey = 'search' | 'social' | 'email' | 'retail' | 'field';
 
@@ -107,7 +108,7 @@ const formatCurrency = (value: number) => `$${value.toLocaleString()}`;
 const ExecutionHub: React.FC = () => {
   const navigate = useNavigate();
   const location = useLocation();
-  const { mode, planId, selectedSegment, setStep } = useAppState();
+  const { mode, planId, selectedSegment, selectedSubsegments, setStep } = useAppState();
   const [statusFilter, setStatusFilter] = React.useState('Running');
   const [agentFilter, setAgentFilter] = React.useState(agentByMode[mode]);
   const [channelFilter, setChannelFilter] = React.useState('All channels');
@@ -118,6 +119,8 @@ const ExecutionHub: React.FC = () => {
   const [launching, setLaunching] = React.useState(false);
   const [launched, setLaunched] = React.useState(false);
   const [paused, setPaused] = React.useState(false);
+  const [actionsOpen, setActionsOpen] = React.useState(false);
+  const [planActions, setPlanActions] = React.useState<string[]>([]);
   const timers = React.useRef<number[]>([]);
 
   React.useEffect(() => {
@@ -129,6 +132,7 @@ const ExecutionHub: React.FC = () => {
     setTimeline(timelineTemplate);
     setLaunching(false);
     setLaunched(false);
+    setPlanActions([]);
   }, [mode]);
 
   React.useEffect(() => {
@@ -201,6 +205,56 @@ const ExecutionHub: React.FC = () => {
 
   const guardrails = guardrailCatalog[mode];
 
+  const handleAddActionToPlan = React.useCallback((id: string) => {
+    setPlanActions((prev) => (prev.includes(id) ? prev : [...prev, id]));
+  }, []);
+
+  const downloadAudience = React.useCallback(() => {
+    const rows: Array<[string, string, string]> = [['id', 'label', 'population']];
+    if (selectedSubsegments.length) {
+      selectedSubsegments.forEach((sub) => {
+        rows.push([sub.id, sub.label, sub.population.toString()]);
+      });
+    } else if (selectedSegment) {
+      rows.push([selectedSegment.id, selectedSegment.name, selectedSegment.size.toString()]);
+    } else {
+      rows.push(['n/a', 'No segment selected', '0']);
+    }
+    const csv = rows.map((row) => row.join(',')).join('\n');
+    const blob = new Blob([csv], { type: 'text/csv' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = 'audience.csv';
+    link.click();
+    URL.revokeObjectURL(url);
+  }, [selectedSegment, selectedSubsegments]);
+
+  const downloadBrief = React.useCallback(() => {
+    const channelSummary = channelOrder
+      .map((key) => `${channelLabels[key]} ${channelMix[key]}%`)
+      .join(', ');
+    const estimatedBudget = Math.max(25000, Math.round(pricing.price * households * 0.05));
+    const lines = [
+      `Plan: ${planId ?? 'Lifecycle launch plan'}`,
+      `Mode: ${mode}`,
+      `Segment: ${selectedSegment?.name ?? 'Pending selection'}`,
+      `Channels: ${channelSummary}`,
+      `Budget assumption: ${formatCurrency(estimatedBudget)}`,
+      `KPIs: CVR ${quickCvr}, ARPU ${arpuDelta.toFixed(2)}, GM12 ${quickGm12}, Net adds ${quickNetAdds}, NPS Δ ${npsDelta.toFixed(
+        1,
+      )} pts, Payback ${payback.toFixed(1)} mo`,
+      `Guardrails: ${autoOptimize ? 'Auto-optimize enabled' : 'Manual optimization'}`,
+    ];
+    const blob = new Blob([lines.join('\n')], { type: 'text/plain' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = 'handoff_brief.txt';
+    link.click();
+    URL.revokeObjectURL(url);
+  }, [autoOptimize, channelMix, households, mode, npsDelta, payback, planId, pricing.price, quickCvr, quickGm12, quickNetAdds, selectedSegment?.name, arpuDelta]);
+
   const handleLaunch = () => {
     if (launching || !planId || readinessPct < 34) return;
     timers.current.forEach((timer) => window.clearTimeout(timer));
@@ -232,7 +286,7 @@ const ExecutionHub: React.FC = () => {
   return (
     <div className="space-y-6">
       <header className="rounded-xl border border-slate-800 bg-slate-950/70 p-6">
-        <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
           <div>
             <h2 className="text-xl font-semibold text-white">Execution Hub</h2>
             <p className="text-sm text-slate-300">
@@ -241,10 +295,20 @@ const ExecutionHub: React.FC = () => {
                 : 'Push a plan from Campaign Designer to activate lifecycle launch workflows.'}
             </p>
           </div>
-          <span className="inline-flex items-center gap-2 rounded-full border border-emerald-500/40 bg-emerald-500/10 px-3 py-1 text-xs font-semibold uppercase tracking-wide text-emerald-200">
-            <span className="h-2 w-2 rounded-full bg-emerald-400" aria-hidden="true" />
-            Mode: {mode}
-          </span>
+          <div className="flex flex-col items-start gap-2 md:items-end">
+            <button
+              type="button"
+              onClick={() => setActionsOpen(true)}
+              className="rounded-full border border-slate-700 px-4 py-1 text-sm font-semibold text-slate-200 transition hover:bg-slate-900 focus:outline-none focus:ring-2 focus:ring-emerald-500"
+              aria-label="Open agentic actions"
+            >
+              Actions
+            </button>
+            <span className="inline-flex items-center gap-2 rounded-full border border-emerald-500/40 bg-emerald-500/10 px-3 py-1 text-xs font-semibold uppercase tracking-wide text-emerald-200">
+              <span className="h-2 w-2 rounded-full bg-emerald-400" aria-hidden="true" />
+              Mode: {mode}
+            </span>
+          </div>
         </div>
       </header>
 
@@ -320,6 +384,18 @@ const ExecutionHub: React.FC = () => {
                   </span>
                 </p>
                 <p className="text-xs text-slate-400">{selectedSegment ? selectedSegment.name : 'Segment pending'}</p>
+                {planActions.length ? (
+                  <div className="mt-3 flex flex-wrap gap-2 text-[11px] text-emerald-200">
+                    {planActions.map((actionId) => (
+                      <span
+                        key={actionId}
+                        className="rounded-full border border-emerald-500/40 bg-emerald-500/10 px-2 py-0.5 font-semibold"
+                      >
+                        {actionId.replace(/-/g, ' ')}
+                      </span>
+                    ))}
+                  </div>
+                ) : null}
               </div>
               <div>
                 <p className="text-xs uppercase tracking-wide text-slate-400">Status</p>
@@ -590,6 +666,33 @@ const ExecutionHub: React.FC = () => {
             </div>
           </div>
 
+          <div className="rounded-xl border border-slate-800 bg-slate-950/70 p-5">
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+              <div>
+                <h3 className="text-sm font-semibold uppercase tracking-wide text-slate-300">Handoff pack</h3>
+                <p className="text-xs text-slate-400">Shareable artifacts for audience ops and channel partners.</p>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  onClick={downloadAudience}
+                  className="rounded-full border border-slate-700 px-4 py-1 text-xs font-semibold text-slate-200 transition hover:bg-slate-900 focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                  aria-label="Download audience CSV"
+                >
+                  Download audience.csv
+                </button>
+                <button
+                  type="button"
+                  onClick={downloadBrief}
+                  className="rounded-full border border-slate-700 px-4 py-1 text-xs font-semibold text-slate-200 transition hover:bg-slate-900 focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                  aria-label="Download brief text"
+                >
+                  Download brief.txt
+                </button>
+              </div>
+            </div>
+          </div>
+
           <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-slate-800 bg-slate-950/70 p-5">
             <div>
               <h3 className="text-lg font-semibold text-white">Launch readiness</h3>
@@ -673,6 +776,12 @@ const ExecutionHub: React.FC = () => {
           </div>
         </aside>
       </div>
+      <ActionDrawer
+        open={actionsOpen}
+        onClose={() => setActionsOpen(false)}
+        mode={mode}
+        onAddToPlan={handleAddActionToPlan}
+      />
     </div>
   );
 };
